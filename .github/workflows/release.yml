@@ -1,57 +1,32 @@
-name: Release
+name: Build Apps
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
+  pull-requests: write
 
 jobs:
-  create-release:
+  build-linux:
     runs-on: ubuntu-latest
     steps:
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
         with:
-          name: Release ${{ github.ref_name }}
-          draft: true
-          prerelease: false
-          # Auto-generates description from merged PRs and commits since the last tag.
-          # To use a changelog file instead, replace with:
-          #   body_path: CHANGELOG.md
-          generate_release_notes: true
+          node-version: '20'
+          cache: 'npm'
 
-  release-linux:
-    needs: create-release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install system dependencies
-        run: |
+      - run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config rpm imagemagick libarchive-tools
 
@@ -62,60 +37,37 @@ jobs:
             convert assets/coinswap.png -resize ${size}x${size} build/icons/${size}x${size}.png
           done
 
-      - name: Install snapcraft
-        run: sudo snap install snapcraft --classic
+      - run: sudo snap install snapcraft --classic
+      - run: npm ci --ignore-scripts
+      - run: node setup-coinswap.js
+      - run: npm run build:css
+      - run: npm run build:electron -- --linux --publish never
 
-      - name: Install Node dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Build Rust NAPI module
-        run: node setup-coinswap.js
-
-      - name: Build CSS
-        run: npm run build:css
-
-      - name: Build Electron packages
-        run: npm run build:electron -- --linux --publish never
-
-      - name: Upload Linux artifacts
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: linux-apps
+          path: |
             dist/*.AppImage
             dist/*.snap
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
             dist/*.pacman
+          if-no-files-found: warn
 
-  release-macos:
-    needs: create-release
+  build-macos:
     runs-on: macos-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Generate macOS icon (icns)
+      - name: Generate macOS icon
         run: |
           mkdir -p build/icon.iconset
           for size in 16 32 64 128 256 512 1024; do
@@ -126,72 +78,80 @@ jobs:
           done
           iconutil -c icns build/icon.iconset -o build/icon.icns
 
-      - name: Install Node dependencies
-        run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+      - run: node setup-coinswap.js
+      - run: npm run build:css
+      - run: npm run build:electron -- --mac --publish never
 
-      - name: Build Rust NAPI module
-        run: node setup-coinswap.js
-
-      - name: Build CSS
-        run: npm run build:css
-
-      - name: Build Electron packages
-        run: npm run build:electron -- --mac --publish never
-
-      - name: Upload macOS artifacts
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: macos-apps
+          path: |
             dist/*.dmg
             dist/mac/*.zip
+          if-no-files-found: warn
 
-  release-windows:
-    needs: create-release
+  build-windows:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Generate Windows icon (ico)
+      - name: Generate Windows icon
         run: |
           mkdir build
           magick convert assets/coinswap.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
 
-      - name: Install Node dependencies
-        run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+      - run: node setup-coinswap.js
+      - run: npm run build:css
+      - run: npm run build:electron -- --win --publish never
 
-      - name: Build Rust NAPI module
-        run: node setup-coinswap.js
-
-      - name: Build CSS
-        run: npm run build:css
-
-      - name: Build Electron packages
-        run: npm run build:electron -- --win --publish never
-
-      - name: Upload Windows artifacts
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: windows-apps
+          path: |
             dist/*.exe
             dist/*.zip
+          if-no-files-found: warn
+
+  comment-pr:
+    if: github.event_name == 'pull_request'
+    needs:
+      - build-linux
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const body = `
+            ✅ Apps built successfully for this PR.
+
+            Artifacts are available here:
+
+            - Linux apps
+            - macOS apps
+            - Windows apps
+
+            Download them from the workflow run:
+
+            ${runUrl}
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
