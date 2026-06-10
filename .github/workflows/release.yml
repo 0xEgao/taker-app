@@ -1,54 +1,32 @@
-name: Release
+name: Build Apps
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
+  pull-requests: write
 
 jobs:
-  create-release:
+  build-linux:
     runs-on: ubuntu-latest
-    steps:
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Release ${{ github.ref_name }}
-          draft: true
-          prerelease: false
-          # Auto-generates description from merged PRs and commits since the last tag.
-          # To use a changelog file instead, replace with:
-          #   body_path: CHANGELOG.md
-          generate_release_notes: true
-
-  release-linux:
-    needs: create-release
-    runs-on: ubuntu-latest
+    outputs:
+      artifact_table: ${{ steps.sizes.outputs.artifact_table }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install system dependencies
         run: |
@@ -65,57 +43,95 @@ jobs:
       - name: Install snapcraft
         run: sudo snap install snapcraft --classic
 
-      - name: Install Node dependencies
-        run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+      - run: node setup-coinswap.js
+      - run: npm run build:css
+      - run: npm run build:electron -- --linux --publish never
 
-      - name: Build Rust NAPI module
-        run: node setup-coinswap.js
+      - name: Collect Linux artifact sizes
+        id: sizes
+        shell: bash
+        run: |
+          files=$(find dist -type f \( \
+            -name "*.AppImage" -o \
+            -name "*.snap" -o \
+            -name "*.deb" -o \
+            -name "*.rpm" -o \
+            -name "*.tar.gz" -o \
+            -name "*.pacman" \
+          \))
 
-      - name: Build CSS
-        run: npm run build:css
+          {
+            echo "artifact_table<<EOF"
+            if [ -z "$files" ]; then
+              echo "| Linux | No artifacts found | - |"
+            else
+              while IFS= read -r file; do
+                size=$(du -h "$file" | cut -f1)
+                name=$(basename "$file")
+                echo "| Linux | \`$name\` | $size |"
+              done <<< "$files"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build Electron packages
-        run: npm run build:electron -- --linux --publish never
-
-      - name: Upload Linux artifacts
-        uses: softprops/action-gh-release@v2
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.AppImage
-            dist/*.snap
-            dist/*.deb
-            dist/*.rpm
-            dist/*.tar.gz
-            dist/*.pacman
+          name: linux-appimage
+          path: dist/*.AppImage
+          if-no-files-found: warn
 
-  release-macos:
-    needs: create-release
+      - name: Upload Linux Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/*.deb
+          if-no-files-found: warn
+
+      - name: Upload Linux RPM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-rpm
+          path: dist/*.rpm
+          if-no-files-found: warn
+
+      - name: Upload Linux Snap package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-snap
+          path: dist/*.snap
+          if-no-files-found: warn
+
+      - name: Upload Linux tar.gz
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tar-gz
+          path: dist/*.tar.gz
+          if-no-files-found: warn
+
+      - name: Upload Linux pacman package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-pacman
+          path: dist/*.pacman
+          if-no-files-found: warn
+
+  build-macos:
     runs-on: macos-latest
+    outputs:
+      artifact_table: ${{ steps.sizes.outputs.artifact_table }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Generate macOS icon (icns)
+      - name: Generate macOS icon
         run: |
           mkdir -p build/icon.iconset
           for size in 16 32 64 128 256 512 1024; do
@@ -126,72 +142,161 @@ jobs:
           done
           iconutil -c icns build/icon.iconset -o build/icon.icns
 
-      - name: Install Node dependencies
-        run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+      - run: node setup-coinswap.js
+      - run: npm run build:css
+      - run: npm run build:electron -- --mac --publish never
 
-      - name: Build Rust NAPI module
-        run: node setup-coinswap.js
+      - name: Collect macOS artifact sizes
+        id: sizes
+        shell: bash
+        run: |
+          files=$(find dist -type f \( \
+            -name "*.dmg" -o \
+            -path "dist/mac/*.zip" \
+          \))
 
-      - name: Build CSS
-        run: npm run build:css
+          {
+            echo "artifact_table<<EOF"
+            if [ -z "$files" ]; then
+              echo "| macOS | No artifacts found | - |"
+            else
+              while IFS= read -r file; do
+                size=$(du -h "$file" | cut -f1)
+                name=$(basename "$file")
+                echo "| macOS | \`$name\` | $size |"
+              done <<< "$files"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build Electron packages
-        run: npm run build:electron -- --mac --publish never
-
-      - name: Upload macOS artifacts
-        uses: softprops/action-gh-release@v2
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.dmg
-            dist/mac/*.zip
+          name: macos-dmg
+          path: dist/*.dmg
+          if-no-files-found: warn
 
-  release-windows:
-    needs: create-release
+      - name: Upload macOS ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip
+          path: dist/mac/*.zip
+          if-no-files-found: warn
+
+  build-windows:
     runs-on: windows-latest
+    outputs:
+      artifact_table: ${{ steps.sizes.outputs.artifact_table }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Generate Windows icon (ico)
+      - name: Generate Windows icon
+        shell: bash
         run: |
-          mkdir build
+          mkdir -p build
           magick convert assets/coinswap.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
 
-      - name: Install Node dependencies
-        run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+      - run: node setup-coinswap.js
+      - run: npm run build:css
+      - run: npm run build:electron -- --win --publish never
 
-      - name: Build Rust NAPI module
-        run: node setup-coinswap.js
+      - name: Collect Windows artifact sizes
+        id: sizes
+        shell: bash
+        run: |
+          files=$(find dist -type f \( \
+            -name "*.exe" -o \
+            -name "*.zip" \
+          \))
 
-      - name: Build CSS
-        run: npm run build:css
+          {
+            echo "artifact_table<<EOF"
+            if [ -z "$files" ]; then
+              echo "| Windows | No artifacts found | - |"
+            else
+              while IFS= read -r file; do
+                size=$(du -h "$file" | cut -f1)
+                name=$(basename "$file")
+                echo "| Windows | \`$name\` | $size |"
+              done <<< "$files"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build Electron packages
-        run: npm run build:electron -- --win --publish never
-
-      - name: Upload Windows artifacts
-        uses: softprops/action-gh-release@v2
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.exe
-            dist/*.zip
+          name: windows-exe
+          path: dist/*.exe
+          if-no-files-found: warn
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/*.zip
+          if-no-files-found: warn
+
+  comment-pr:
+    if: github.event_name == 'pull_request'
+    needs:
+      - build-linux
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          LINUX_TABLE: ${{ needs.build-linux.outputs.artifact_table }}
+          MACOS_TABLE: ${{ needs.build-macos.outputs.artifact_table }}
+          WINDOWS_TABLE: ${{ needs.build-windows.outputs.artifact_table }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const linux = process.env.LINUX_TABLE || "| Linux | No artifacts found | - |";
+            const macos = process.env.MACOS_TABLE || "| macOS | No artifacts found | - |";
+            const windows = process.env.WINDOWS_TABLE || "| Windows | No artifacts found | - |";
+
+            const body = [
+              "✅ Apps built successfully for this PR.",
+              "",
+              "Download artifacts from this workflow run:",
+              "",
+              runUrl,
+              "",
+              "| Platform | File | Size |",
+              "|----------|------|------|",
+              linux,
+              macos,
+              windows,
+              "",
+              "Artifact bundles:",
+              "- `linux-appimage`",
+              "- `linux-deb`",
+              "- `linux-rpm`",
+              "- `linux-snap`",
+              "- `linux-tar-gz`",
+              "- `linux-pacman`",
+              "- `macos-dmg`",
+              "- `macos-zip`",
+              "- `windows-exe`",
+              "- `windows-zip`"
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
