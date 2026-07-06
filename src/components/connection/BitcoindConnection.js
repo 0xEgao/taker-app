@@ -166,41 +166,6 @@ export class BitcoindConnection {
         }
     }
 
-    async getBalance() {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('getbalance');
-    }
-
-    async getNewAddress(label = '', type = 'bech32') {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('getnewaddress', [label, type]);
-    }
-
-    async getTransactions(count = 10) {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('listtransactions', ['*', count]);
-    }
-
-    async sendToAddress(address, amount, comment = '', commentTo = '') {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('sendtoaddress', [address, amount, comment, commentTo]);
-    }
-
-    async getBlockchainInfo() {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('getblockchaininfo');
-    }
-
     disconnect() {
         this.isConnected = false;
         this.retryAttempts = 0;
@@ -216,12 +181,3 @@ export class BitcoindConnection {
 
 // Global connection instance
 export const bitcoindConnection = new BitcoindConnection();
-
-// Utility functions
-export async function ensureBitcoindConnection() {
-    return await bitcoindConnection.connect();
-}
-
-export function getBitcoindConnection() {
-    return bitcoindConnection;
-}

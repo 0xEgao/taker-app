@@ -582,17 +582,6 @@ export async function SwapComponent(container) {
     return `${mins}m ${secs}s`;
   }
 
-  function renderMakerCandidates(addresses) {
-    if (!addresses.length) return 'None selected';
-
-    return addresses
-      .map((address) => {
-        const displayAddress = formatTorEndpoint(address, 10, 11);
-        return `<span title="${escapeHtml(address)}">${escapeHtml(displayAddress)}</span>`;
-      })
-      .join('');
-  }
-
   // Estimate fees from the top candidate makers shown in the UI.
   function calculateFees(amount) {
     const hops = getNumberOfHops();

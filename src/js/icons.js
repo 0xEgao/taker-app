@@ -21,8 +21,6 @@ import AlertTriangle from '../../node_modules/lucide/dist/esm/icons/triangle-ale
 import RefreshCw from '../../node_modules/lucide/dist/esm/icons/refresh-cw.js';
 import Loader from '../../node_modules/lucide/dist/esm/icons/loader.js';
 import ArrowDownCircle from '../../node_modules/lucide/dist/esm/icons/circle-arrow-down.js';
-import ArrowUpCircle from '../../node_modules/lucide/dist/esm/icons/circle-arrow-up.js';
-import Package from '../../node_modules/lucide/dist/esm/icons/package.js';
 import Save from '../../node_modules/lucide/dist/esm/icons/save.js';
 import ExternalLink from '../../node_modules/lucide/dist/esm/icons/external-link.js';
 import ArrowUpRight from '../../node_modules/lucide/dist/esm/icons/arrow-up-right.js';
@@ -30,17 +28,11 @@ import ArrowDownLeft from '../../node_modules/lucide/dist/esm/icons/arrow-down-l
 import Zap from '../../node_modules/lucide/dist/esm/icons/zap.js';
 import Copy from '../../node_modules/lucide/dist/esm/icons/copy.js';
 import Search from '../../node_modules/lucide/dist/esm/icons/search.js';
-import Lock from '../../node_modules/lucide/dist/esm/icons/lock.js';
 import Key from '../../node_modules/lucide/dist/esm/icons/key.js';
-import KeyRound from '../../node_modules/lucide/dist/esm/icons/key-round.js';
 import ClipboardCopy from '../../node_modules/lucide/dist/esm/icons/clipboard-copy.js';
 import Info from '../../node_modules/lucide/dist/esm/icons/info.js';
 import Timer from '../../node_modules/lucide/dist/esm/icons/timer.js';
-import Link from '../../node_modules/lucide/dist/esm/icons/link.js';
-import Handshake from '../../node_modules/lucide/dist/esm/icons/handshake.js';
-import Receipt from '../../node_modules/lucide/dist/esm/icons/receipt.js';
 import FileText from '../../node_modules/lucide/dist/esm/icons/file-text.js';
-import CircleDollarSign from '../../node_modules/lucide/dist/esm/icons/circle-dollar-sign.js';
 import ShieldCheck from '../../node_modules/lucide/dist/esm/icons/shield-check.js';
 import Recycle from '../../node_modules/lucide/dist/esm/icons/recycle.js';
 import Globe from '../../node_modules/lucide/dist/esm/icons/globe.js';
@@ -48,10 +40,8 @@ import Inbox from '../../node_modules/lucide/dist/esm/icons/inbox.js';
 import Radio from '../../node_modules/lucide/dist/esm/icons/radio.js';
 import Hourglass from '../../node_modules/lucide/dist/esm/icons/hourglass.js';
 import FolderOpen from '../../node_modules/lucide/dist/esm/icons/folder-open.js';
-import Folder from '../../node_modules/lucide/dist/esm/icons/folder.js';
 import Lightbulb from '../../node_modules/lucide/dist/esm/icons/lightbulb.js';
 import PlusCircle from '../../node_modules/lucide/dist/esm/icons/circle-plus.js';
-import PauseCircle from '../../node_modules/lucide/dist/esm/icons/circle-pause.js';
 import Eye from '../../node_modules/lucide/dist/esm/icons/eye.js';
 import EyeOff from '../../node_modules/lucide/dist/esm/icons/eye-off.js';
 import ArrowLeft from '../../node_modules/lucide/dist/esm/icons/arrow-left.js';
@@ -90,10 +80,6 @@ export const icons = {
   loader:         (size = 16, cls = '') => toSvg(Loader,         size, cls),
   /** 📥 receive / incoming */
   arrowDownCircle:(size = 16, cls = '') => toSvg(ArrowDownCircle,size, cls),
-  /** 📤 send / outgoing */
-  arrowUpCircle:  (size = 16, cls = '') => toSvg(ArrowUpCircle,  size, cls),
-  /** 📦 UTXO / package */
-  package:        (size = 16, cls = '') => toSvg(Package,        size, cls),
   /** 💾 save / backup */
   save:           (size = 16, cls = '') => toSvg(Save,           size, cls),
   /** 🔍 mempool explorer / external link */
@@ -108,28 +94,16 @@ export const icons = {
   copy:           (size = 16, cls = '') => toSvg(Copy,           size, cls),
   /** search */
   search:         (size = 16, cls = '') => toSvg(Search,         size, cls),
-  /** 🔒 lock / privacy */
-  lock:           (size = 16, cls = '') => toSvg(Lock,           size, cls),
   /** 🔑 key / signing */
   key:            (size = 16, cls = '') => toSvg(Key,            size, cls),
-  /** 🔐 key round / key exchange */
-  keyRound:       (size = 16, cls = '') => toSvg(KeyRound,       size, cls),
   /** 📋 clipboard copy */
   clipboardCopy:  (size = 16, cls = '') => toSvg(ClipboardCopy,  size, cls),
   /** ℹ️ info */
   info:           (size = 16, cls = '') => toSvg(Info,           size, cls),
   /** ⏱️ timer / duration */
   timer:          (size = 16, cls = '') => toSvg(Timer,          size, cls),
-  /** 🔗 link / artifacts */
-  link:           (size = 16, cls = '') => toSvg(Link,           size, cls),
-  /** 🤝 handshake / swap partners */
-  handshake:      (size = 16, cls = '') => toSvg(Handshake,      size, cls),
-  /** 💸 receipt / fees */
-  receipt:        (size = 16, cls = '') => toSvg(Receipt,        size, cls),
   /** 📝 file text / transactions */
   fileText:       (size = 16, cls = '') => toSvg(FileText,       size, cls),
-  /** 💰 dollar / amount */
-  circleDollarSign:(size = 16, cls = '') => toSvg(CircleDollarSign, size, cls),
   /** 🛡️ shield check / privacy contribution */
   shieldCheck:    (size = 16, cls = '') => toSvg(ShieldCheck,    size, cls),
   /** ♻️ recycle / restore wallet */
@@ -144,14 +118,10 @@ export const icons = {
   hourglass:      (size = 16, cls = '') => toSvg(Hourglass,      size, cls),
   /** 📂 folder open */
   folderOpen:     (size = 16, cls = '') => toSvg(FolderOpen,     size, cls),
-  /** 📁 folder */
-  folder:         (size = 16, cls = '') => toSvg(Folder,         size, cls),
   /** 💡 tip / lightbulb */
   lightbulb:      (size = 16, cls = '') => toSvg(Lightbulb,      size, cls),
   /** 🆕 create new */
   plusCircle:     (size = 16, cls = '') => toSvg(PlusCircle,     size, cls),
-  /** ⏸️ unresponsive / paused */
-  pauseCircle:    (size = 16, cls = '') => toSvg(PauseCircle,    size, cls),
   /** show password */
   eye:            (size = 16, cls = '') => toSvg(Eye,            size, cls),
   /** hide password */

@@ -37,7 +37,6 @@ export async function CoinswapComponent(container, swapConfig) {
   let logPollInterval = null;
   let cborPollInterval = null;
   let elapsedInterval = null;
-  let lastLogLine = '';
   let processedLogs = new Set();
   let progressAnimation = null;
 
@@ -93,7 +92,6 @@ export async function CoinswapComponent(container, swapConfig) {
   let startTime =
     savedProgress?.startTime || actualSwapConfig?.startTime || Date.now();
   let logMessages = savedProgress ? savedProgress.logMessages || [] : [];
-  let currentHop = 0;
 
   const swapProtocol = normalizeProtocol(
     actualSwapConfig?.protocol,
@@ -118,7 +116,6 @@ export async function CoinswapComponent(container, swapConfig) {
     { length: swapData.makers },
     () => null
   );
-  const contractDataReceivedMakers = new Set();
 
   if (swapData.transactions.length === 0) {
     if (isV2) {
@@ -154,8 +151,6 @@ export async function CoinswapComponent(container, swapConfig) {
       }
     }
   }
-
-  const makerColors = ['#518def', '#3B82F6', '#A855F7', '#06B6D4', '#10B981'];
 
   function addLog(message, type = 'info') {
     // Avoid duplicate logs
@@ -196,19 +191,6 @@ export async function CoinswapComponent(container, swapConfig) {
     if (!text) return '';
     if (text.length <= left + right + 3) return text;
     return `${text.slice(0, left)}...${text.slice(-right)}`;
-  }
-
-  function setPendingMakerAddress(makerIndex, address) {
-    if (
-      makerIndex === null ||
-      makerIndex < 0 ||
-      makerIndex >= swapData.makers ||
-      !address
-    ) {
-      return;
-    }
-
-    pendingMakerAddresses[makerIndex] = address;
   }
 
   function revealMakerAddress(makerIndex, address = null) {
@@ -379,29 +361,12 @@ export async function CoinswapComponent(container, swapConfig) {
     }
   }
 
-  function markContractsReceivedIfComplete() {
-    if (contractDataReceivedMakers.size < swapData.makers) return;
-
-    for (let i = 0; i < swapData.makers; i++) {
-      updateMakerVisibility(i, true);
-      updateHopStatus(i, 'Contract received', 'green');
-    }
-  }
-
   function markAllMakersFailed() {
     progressAnimation?.setFailed();
     for (let i = 0; i < swapData.makers; i++) {
       updateMakerVisibility(i, true);
       updateHopStatus(i, 'Failed', 'orange');
     }
-  }
-
-  function updateYouSend(active) {
-    progressAnimation?.setWalletActive(active);
-  }
-
-  function updateYouReceive(active) {
-    progressAnimation?.setReceiverActive(active);
   }
 
   // Map per-maker CBOR flags (from buildMakerProgress) to a display label + color.
@@ -499,14 +464,6 @@ export async function CoinswapComponent(container, swapConfig) {
       swapData.transactions[hopIndex].status = 'broadcasting';
       updateTxList();
       updateArrowLink(hopIndex, txid); // Add this
-    }
-  }
-
-  function setTransactionConfirmed(hopIndex) {
-    if (swapData.transactions[hopIndex]) {
-      swapData.transactions[hopIndex].status = 'confirmed';
-      swapData.transactions[hopIndex].confirmations = 1;
-      updateTxList();
     }
   }
 

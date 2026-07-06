@@ -21,7 +21,6 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('taker:getSyncStatus', syncId),
     getOffers: () => ipcRenderer.invoke('taker:getOffers'),
     checkSwapLiquidity: () => ipcRenderer.invoke('taker:checkSwapLiquidity'),
-    getGoodMakers: () => ipcRenderer.invoke('taker:getGoodMakers'),
     getTransactions: (count, skip) =>
       ipcRenderer.invoke('taker:getTransactions', { count, skip }),
     getUtxos: () => ipcRenderer.invoke('taker:getUtxos'),
@@ -34,15 +33,9 @@ contextBridge.exposeInMainWorld('api', {
       }),
     recover: () => ipcRenderer.invoke('taker:recover'),
     getRecoveryStatus: () => ipcRenderer.invoke('taker:getRecoveryStatus'),
-    isWalletEncrypted: (walletPath) =>
-      ipcRenderer.invoke('taker:isWalletEncrypted', walletPath),
     getWalletInfo: () => ipcRenderer.invoke('taker:getWalletInfo'),
     getCurrentSyncState: () => ipcRenderer.invoke('taker:getCurrentSyncState'),
-    testTorConnection: (config) =>
-      ipcRenderer.invoke('tor:testConnection', config),
     getProtocol: () => ipcRenderer.invoke('taker:getProtocol'),
-    setupLogging: (dataDir, level) =>
-      ipcRenderer.invoke('taker:setupLogging', { dataDir, level }),
     getSwapProgress: (nativeSwapId) =>
       ipcRenderer.invoke('taker:getSwapProgress', nativeSwapId),
     verifyDeniability: (swapId) =>
@@ -68,16 +61,11 @@ contextBridge.exposeInMainWorld('api', {
   swapState: {
     save: (state) => ipcRenderer.invoke('swapState:save', state),
     load: () => ipcRenderer.invoke('swapState:load'),
-    clear: () => ipcRenderer.invoke('swapState:clear'),
   },
 
   shell: {
     showItemInFolder: (path) =>
       ipcRenderer.invoke('shell:showItemInFolder', path),
-  },
-   preferences: {
-    get: (key) => ipcRenderer.invoke('preferences:get', key),
-    set: (key, value) => ipcRenderer.invoke('preferences:set', key, value),
   },
 
   app: {

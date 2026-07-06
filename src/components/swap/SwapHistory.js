@@ -297,34 +297,6 @@ export async function openSwapReport(container, swapId, options = {}) {
   }
 }
 
-export function summarizeSwapHistory(history) {
-  const totalSwaps = history.length;
-  const completedSwaps = history.filter(
-    (s) => normalizeStatus(s.status) === 'completed'
-  );
-  const failedSwaps = history.filter(
-    (s) => normalizeStatus(s.status) === 'failed'
-  );
-  const totalAmount = completedSwaps.reduce(
-    (sum, s) => sum + (Number(s.amount) || 0),
-    0
-  );
-  const totalFees = completedSwaps.reduce(
-    (sum, s) => sum + (Number(s.totalFee) || 0),
-    0
-  );
-  const avgFeePaid =
-    completedSwaps.length > 0 ? Math.round(totalFees / completedSwaps.length) : 0;
-  return {
-    totalSwaps,
-    completedSwaps: completedSwaps.length,
-    failedSwaps: failedSwaps.length,
-    totalAmount,
-    totalFees,
-    avgFeePaid,
-  };
-}
-
 export function buildSwapHistoryMarkup(history) {
   if (history.length === 0) {
     return `

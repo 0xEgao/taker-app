@@ -2,24 +2,6 @@ import { formatSats } from '../../js/price.js';
 import { icons } from '../../js/icons.js';
 import { openSwapReport } from '../swap/SwapHistory.js';
 
-const WALLET_CACHE_KEY = 'wallet_data_cache';
-
-function saveWalletToCache(balance, transactions, utxos) {
-  try {
-    localStorage.setItem(
-      WALLET_CACHE_KEY,
-      JSON.stringify({
-        balance,
-        transactions,
-        utxos,
-        timestamp: Date.now(),
-      })
-    );
-  } catch (err) {
-    console.error('Failed to save wallet cache:', err);
-  }
-}
-
 export async function WalletComponent(container) {
   let allTransactions = [];
   let allUtxos = [];
@@ -452,7 +434,6 @@ export async function WalletComponent(container) {
     refreshText.textContent = 'Refreshing';
 
     try {
-      localStorage.removeItem(WALLET_CACHE_KEY);
       try {
         await syncWalletState();
       } catch (syncErr) {
@@ -462,13 +443,8 @@ export async function WalletComponent(container) {
         );
       }
 
-      const [balance, transactions, utxos] = await Promise.all([
-        updateBalance(),
-        updateTransactions(),
-        updateUtxos(),
-      ]);
+      await Promise.all([updateBalance(), updateTransactions(), updateUtxos()]);
 
-      if (balance) saveWalletToCache(balance, transactions, utxos);
       content.querySelector('#last-updated').textContent =
         'Last updated just now';
     } catch (error) {
@@ -660,11 +636,5 @@ export async function WalletComponent(container) {
     );
   }
 
-  const [balance, transactions, utxos] = await Promise.all([
-    updateBalance(),
-    updateTransactions(),
-    updateUtxos(),
-  ]);
-
-  if (balance) saveWalletToCache(balance, transactions, utxos);
+  await Promise.all([updateBalance(), updateTransactions(), updateUtxos()]);
 }

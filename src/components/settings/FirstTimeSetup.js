@@ -13,11 +13,6 @@ export function FirstTimeSetupModal(container, onComplete) {
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
   `;
-  const iconShield = `
-    <svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l7 4v5c0 5-3.5 7.74-7 9-3.5-1.26-7-4-7-9V7l7-4z"/>
-    </svg>
-  `;
   const modal = document.createElement('div');
   modal.id = 'setup-modal';
   modal.className = 'setup-modal-root';
@@ -707,13 +702,6 @@ export function FirstTimeSetupModal(container, onComplete) {
       const input = modal.querySelector(selector);
       if (input && value !== undefined) {
         input.value = value;
-      }
-    };
-
-    const setChecked = (selector, checked) => {
-      const input = modal.querySelector(selector);
-      if (input) {
-        input.checked = Boolean(checked);
       }
     };
 
