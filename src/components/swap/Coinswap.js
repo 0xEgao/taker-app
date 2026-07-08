@@ -2,25 +2,11 @@ import { SwapStateManager } from './SwapStateManager.js';
 import { icons } from '../../js/icons.js';
 import { formatSats, SATS_SYMBOL } from '../../js/price.js';
 import { createSwapProgressAnimation } from './SwapProgressAnimation.js';
+import { explorerTxUrl, normalizeSwapProtocol, escapeHtml, truncateMiddle } from '../../js/coinswapHelpers.js';
 
 export async function CoinswapComponent(container, swapConfig) {
   if (typeof window !== 'undefined' && window.__coinswapProgressCleanup) {
     window.__coinswapProgressCleanup();
-  }
-
-  function normalizeProtocol(value, fallbackIsTaproot = false) {
-    switch (value) {
-      case 'v2':
-      case 'Taproot':
-        return 'Taproot';
-      case 'Unified':
-        return 'Unified';
-      case 'v1':
-      case 'Legacy':
-      case 'Legacy P2WSH':
-      default:
-        return fallbackIsTaproot ? 'Taproot' : 'Legacy';
-    }
   }
 
   const content = document.createElement('div');
@@ -93,7 +79,7 @@ export async function CoinswapComponent(container, swapConfig) {
     savedProgress?.startTime || actualSwapConfig?.startTime || Date.now();
   let logMessages = savedProgress ? savedProgress.logMessages || [] : [];
 
-  const swapProtocol = normalizeProtocol(
+  const swapProtocol = normalizeSwapProtocol(
     actualSwapConfig?.protocol,
     actualSwapConfig?.isTaproot || false
   );
@@ -177,22 +163,6 @@ export async function CoinswapComponent(container, swapConfig) {
     });
   }
 
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function compactEndpoint(value, left = 7, right = 5) {
-    const text = String(value || '').trim();
-    if (!text) return '';
-    if (text.length <= left + right + 3) return text;
-    return `${text.slice(0, left)}...${text.slice(-right)}`;
-  }
-
   function revealMakerAddress(makerIndex, address = null) {
     if (
       makerIndex === null ||
@@ -215,7 +185,7 @@ export async function CoinswapComponent(container, swapConfig) {
       `#maker-${makerIndex} .route-address`
     );
     if (addressEl) {
-      addressEl.textContent = compactEndpoint(resolvedAddress);
+      addressEl.textContent = truncateMiddle(resolvedAddress, { start: 7, end: 5, ellipsis: '...' });
       addressEl.title = resolvedAddress;
       addressEl.classList.remove('is-pending');
     }
@@ -1027,12 +997,10 @@ export async function CoinswapComponent(container, swapConfig) {
   function updateArrowLink(hopIndex, txid) {
     const arrow = content.querySelector(`#arrow-link-${hopIndex}`);
     if (arrow && txid) {
-      const baseUrl = 'https://mempool.citadelfoss.xyz/tx/';
-      // ✅ FIX: Use setAttributeNS for SVG href
       arrow.setAttributeNS(
         'http://www.w3.org/1999/xlink',
         'href',
-        `${baseUrl}${encodeURIComponent(txid)}`
+        explorerTxUrl(txid)
       );
     }
   }

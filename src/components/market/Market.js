@@ -1,5 +1,6 @@
 import { icons } from '../../js/icons.js';
 import { formatSats, SATS_SYMBOL } from '../../js/price.js';
+import { explorerTxUrl, estimateMakerFee, formatTorEndpoint, showToast } from '../../js/coinswapHelpers.js';
 
 export function Market(container) {
   const content = document.createElement('div');
@@ -10,24 +11,14 @@ export function Market(container) {
   let syncProgress = null;
   let currentMakerStatus = 'good';
   let syncCheckInterval = null;
+  let trackedSyncId = localStorage.getItem('active_sync_id') || null;
+  let syncTickFetchInFlight = false;
   let periodicRefreshInterval = null;
   let relayCount = null;
   const activeMakerPolls = new Set();
 
   function refreshButtonContent(label = 'Refresh', spinning = false) {
     return `${icons.refreshCw(16, spinning ? 'animate-spin' : '')} ${label}`;
-  }
-
-  function formatTorEndpoint(address, start = 8, end = 6) {
-    if (!address || typeof address !== 'string') return 'unknown';
-
-    const separatorIndex = address.lastIndexOf(':');
-    const host = (
-      separatorIndex !== -1 ? address.slice(0, separatorIndex) : address
-    ).replace(/\.onion$/i, '');
-
-    if (host.length <= start + end + 3) return host;
-    return `${host.slice(0, start)}...${host.slice(-end)}`;
   }
 
   function formatSatsNumber(sats) {
@@ -41,46 +32,137 @@ export function Market(container) {
   }
 
   function calculateMakerFee(maker, amountSats, makerPosition, totalMakers) {
-    const liquidityRate = Number(maker.volumeFee || 0);
-    const timeRate = Number(maker.timeFee || 0);
-    const refundLocktime = 20 * (totalMakers - makerPosition + 1);
-    const baseFee = Number(maker.baseFee || 0);
-    const liquidityFee = amountSats * liquidityRate;
-    const timeFee = refundLocktime * amountSats * timeRate;
+    const amountRelativeFeePct = Number(maker.volumeFee || 0);
+    const timeRelativeFeePct = Number(maker.timeFee || 0);
+    const estimate = estimateMakerFee({
+      baseFee: Number(maker.baseFee || 0),
+      amountRelativeFeePct,
+      timeRelativeFeePct,
+      amountSats,
+      makerPosition,
+      totalMakers,
+    });
 
     return {
-      baseFee,
-      liquidityFee,
-      timeFee,
-      totalFee: baseFee + liquidityFee + timeFee,
-      refundLocktime,
-      liquidityRate,
-      timeRate,
+      baseFee: estimate.baseFee,
+      liquidityFee: estimate.volumeFee,
+      timeFee: estimate.timeFee,
+      totalFee: estimate.totalFee,
+      refundLocktime: estimate.refundLocktime,
+      liquidityRate: amountRelativeFeePct / 100,
+      timeRate: timeRelativeFeePct / 100,
     };
   }
 
-  function startSyncStateMonitor() {
+  // The single canonical sync monitor: runs continuously while Market is
+  // mounted, whether the sync it's watching was started by this page's
+  // button, by app.js at startup, or by a previous mount. Bootstraps a
+  // syncId via getCurrentSyncState() when it doesn't have one yet, then
+  // switches to getSyncStatus(syncId) for full completed/failed detail.
+  function startSyncMonitor() {
     if (syncCheckInterval) return;
 
     syncCheckInterval = setInterval(async () => {
-      const state = await window.api.taker.getCurrentSyncState();
-
-      if (!state.success) return;
-
       const refreshBtn = content.querySelector('#refresh-market-btn');
-      if (!refreshBtn) return;
 
-      if (state.isRunning) {
-        refreshBtn.disabled = true;
-        refreshBtn.innerHTML = refreshButtonContent('Refreshing...', true);
-
-        if (state.currentSyncId && !localStorage.getItem('active_sync_id')) {
-          localStorage.setItem('active_sync_id', state.currentSyncId);
+      if (!trackedSyncId) {
+        let state;
+        try {
+          state = await window.api.taker.getCurrentSyncState();
+        } catch (err) {
+          console.warn('Sync state check failed:', err);
+          return;
         }
-      } else if (refreshBtn.disabled) {
-        refreshBtn.disabled = false;
-        refreshBtn.innerHTML = refreshButtonContent();
+        if (!state.success || !state.isRunning || !state.currentSyncId) return;
+
+        trackedSyncId = state.currentSyncId;
+        localStorage.setItem('active_sync_id', trackedSyncId);
+        syncProgress = {
+          percent: 50,
+          status: 'syncing',
+          message: 'Syncing market data...',
+        };
+        if (refreshBtn) {
+          refreshBtn.disabled = true;
+          refreshBtn.innerHTML = refreshButtonContent('Refreshing...', true);
+        }
+        updateUI();
+        return;
       }
+
+      let status;
+      try {
+        status = await window.api.taker.getSyncStatus(trackedSyncId);
+      } catch (err) {
+        console.warn('Sync status check failed:', err);
+        return;
+      }
+
+      if (!status.success) {
+        trackedSyncId = null;
+        localStorage.removeItem('active_sync_id');
+        if (syncProgress) {
+          syncProgress = null;
+          if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = refreshButtonContent();
+          }
+          updateUI();
+        }
+        return;
+      }
+
+      const syncStatus = status.sync.status;
+
+      if (syncStatus !== 'completed' && syncStatus !== 'failed') {
+        if (refreshBtn) {
+          refreshBtn.disabled = true;
+          refreshBtn.innerHTML = refreshButtonContent('Refreshing...', true);
+        }
+        if (!syncProgress) {
+          syncProgress = {
+            percent: 50,
+            status: 'syncing',
+            message: 'Syncing market data...',
+          };
+        }
+        if (!syncTickFetchInFlight) {
+          syncTickFetchInFlight = true;
+          fetchMakers()
+            .then(() => updateUI())
+            .catch((e) => console.warn('Incremental fetchMakers failed:', e))
+            .finally(() => {
+              syncTickFetchInFlight = false;
+            });
+        }
+        return;
+      }
+
+      trackedSyncId = null;
+      localStorage.removeItem('active_sync_id');
+      syncProgress = null;
+      await fetchMakers();
+
+      if (syncStatus === 'completed') {
+        if (refreshBtn) {
+          refreshBtn.innerHTML = refreshButtonContent('Refreshed!');
+          setTimeout(() => {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = refreshButtonContent();
+          }, 2000);
+        }
+      } else {
+        if (refreshBtn) {
+          refreshBtn.innerHTML = refreshButtonContent('Refresh Failed');
+          setTimeout(() => {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = refreshButtonContent();
+          }, 3000);
+        }
+        showError(status.sync.error || 'Sync failed');
+      }
+
+      updateUI();
     }, 1000);
   }
 
@@ -231,8 +313,10 @@ export function Market(container) {
       return;
     }
 
-    refreshBtn.disabled = true;
-    refreshBtn.innerHTML = refreshButtonContent('Refreshing...', true);
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.innerHTML = refreshButtonContent('Refreshing...', true);
+    }
 
     syncProgress = {
       percent: 50,
@@ -247,66 +331,23 @@ export function Market(container) {
         throw new Error(result.error || 'Failed to start sync');
       }
 
-      const syncId = result.syncId;
-      localStorage.setItem('active_sync_id', syncId);
-
-      let tickFetchInFlight = false;
-      await new Promise((resolve, reject) => {
-        const poll = setInterval(async () => {
-          try {
-            const status = await window.api.taker.getSyncStatus(syncId);
-
-            if (!status.success) {
-              clearInterval(poll);
-              reject(new Error('Failed to get sync status'));
-              return;
-            }
-
-            if (status.sync.status === 'syncing' && !tickFetchInFlight) {
-              tickFetchInFlight = true;
-              fetchMakers()
-                .then(() => updateUI())
-                .catch((e) =>
-                  console.warn('Incremental fetchMakers failed:', e)
-                )
-                .finally(() => {
-                  tickFetchInFlight = false;
-                });
-            }
-
-            if (status.sync.status === 'completed') {
-              clearInterval(poll);
-              resolve();
-            } else if (status.sync.status === 'failed') {
-              clearInterval(poll);
-              reject(new Error(status.sync.error || 'Sync failed'));
-            }
-          } catch (err) {
-            clearInterval(poll);
-            reject(err);
-          }
-        }, 1000);
-      });
-
-      localStorage.removeItem('active_sync_id');
-      syncProgress = null;
-      await fetchMakers();
-
-      refreshBtn.innerHTML = refreshButtonContent('Refreshed!');
-      setTimeout(() => {
-        refreshBtn.disabled = false;
-        refreshBtn.innerHTML = refreshButtonContent();
-      }, 2000);
+      // startSyncMonitor's continuous loop picks up trackedSyncId next tick
+      // and drives all further UI updates (progress, completion, failure).
+      trackedSyncId = result.syncId;
+      localStorage.setItem('active_sync_id', trackedSyncId);
     } catch (error) {
       console.error('[market] Refresh failed', error);
-      localStorage.removeItem('active_sync_id');
       syncProgress = null;
       updateUI();
-      refreshBtn.innerHTML = refreshButtonContent('Refresh Failed');
+      if (refreshBtn) {
+        refreshBtn.innerHTML = refreshButtonContent('Refresh Failed');
+      }
       showError(error.message);
       setTimeout(() => {
-        refreshBtn.disabled = false;
-        refreshBtn.innerHTML = refreshButtonContent();
+        if (refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.innerHTML = refreshButtonContent();
+        }
       }, 3000);
     }
   }
@@ -317,46 +358,15 @@ export function Market(container) {
     await fetchMakers();
     isLoading = false;
 
-    try {
-      const syncingResult = await window.api.taker.getCurrentSyncState();
-
-      if (syncingResult.success && syncingResult.isRunning) {
-        syncProgress = {
-          percent: 50,
-          status: 'syncing',
-          message: 'Syncing market data...',
-        };
-        updateUI();
-        await monitorExistingSync();
-        return;
-      }
-    } catch (err) {
-      console.error('Failed to check if syncing:', err);
-    }
-
-    const activeSyncId = localStorage.getItem('active_sync_id');
-    if (activeSyncId) {
-      try {
-        const status = await window.api.taker.getSyncStatus(activeSyncId);
-        if (
-          status.success &&
-          (status.sync.status === 'syncing' ||
-            status.sync.status === 'starting')
-        ) {
-          syncProgress = {
-            percent: 50,
-            status: 'syncing',
-            message: 'Syncing market data...',
-          };
-          updateUI();
-          await monitorExistingSync();
-          return;
-        }
-
-        localStorage.removeItem('active_sync_id');
-      } catch (err) {
-        localStorage.removeItem('active_sync_id');
-      }
+    if (trackedSyncId) {
+      // A sync may already be in flight (app.js's startup trigger, or a
+      // previous mount) — startSyncMonitor's next tick will pick it up via
+      // getSyncStatus(trackedSyncId) and drive the UI from there.
+      syncProgress = {
+        percent: 50,
+        status: 'syncing',
+        message: 'Syncing market data...',
+      };
     }
 
     updateUI();
@@ -375,76 +385,40 @@ export function Market(container) {
       if (!document.body.contains(content)) {
         clearInterval(periodicRefreshInterval);
         periodicRefreshInterval = null;
+        if (syncCheckInterval) {
+          clearInterval(syncCheckInterval);
+          syncCheckInterval = null;
+        }
         observer.disconnect();
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  async function monitorExistingSync() {
-    let tickFetchInFlight = false;
-    let isSyncing = true;
-    while (isSyncing) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      try {
-        const result = await window.api.taker.getCurrentSyncState();
-        if (result.success) {
-          isSyncing = result.isRunning;
-
-          if (isSyncing && !tickFetchInFlight) {
-            tickFetchInFlight = true;
-            fetchMakers()
-              .then(() => updateUI())
-              .catch((e) => console.warn('Incremental fetchMakers failed:', e))
-              .finally(() => {
-                tickFetchInFlight = false;
-              });
-          } else if (isSyncing) {
-            console.log('Still syncing (prior tick fetch in flight)...');
-          }
-        }
-      } catch (error) {
-        console.error('Error checking sync status:', error);
-        break;
-      }
-    }
-
-    syncProgress = null;
-    await fetchMakers();
-    updateUI();
-  }
-
   function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'market-toast-error';
-    errorDiv.innerHTML = `
-      <div>
+    showToast(
+      `<div>
         ${icons.xCircle(20)}
         <div>
           <strong>Error</strong>
           <span>${message}</span>
         </div>
-      </div>
-    `;
-    document.body.appendChild(errorDiv);
-    setTimeout(() => errorDiv.remove(), 5000);
+      </div>`,
+      { className: 'market-toast-error', duration: 5000, html: true }
+    );
   }
 
   function showSuccess(message) {
-    const div = document.createElement('div');
-    div.className = 'market-toast-success';
-    div.innerHTML = `
-      <div>
+    showToast(
+      `<div>
         ${icons.checkCircle(20)}
         <div>
           <strong>Success</strong>
           <span>${message}</span>
         </div>
-      </div>
-    `;
-    document.body.appendChild(div);
-    setTimeout(() => div.remove(), 4000);
+      </div>`,
+      { className: 'market-toast-success', duration: 4000, html: true }
+    );
   }
 
   function calculateStats() {
@@ -507,7 +481,7 @@ export function Market(container) {
           </div>
           <div class="wide">
             <span>Bond Txid</span>
-            <button onclick="window.open('https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(maker.bondTxid)}', '_blank')">
+            <button onclick="window.open('${explorerTxUrl(maker.bondTxid)}', '_blank')">
               ${maker.bondTxid}
             </button>
           </div>
@@ -541,7 +515,7 @@ export function Market(container) {
           <div>
             <span>Fee Calculator</span>
             <h3>Estimate swap cost</h3>
-            <p title="${maker.address}">${formatTorEndpoint(maker.address, 22, 12)}</p>
+            <p title="${maker.address}">${formatTorEndpoint(maker.address, { start: 22, end: 12, ellipsis: '...', stripOnion: true })}</p>
           </div>
           <button class="market-modal-close" type="button" aria-label="Close">&times;</button>
         </div>
@@ -789,7 +763,7 @@ export function Market(container) {
             const isPolling = activeMakerPolls.has(maker.address);
             return `
               <div class="market-row">
-                <div class="market-address" title="${maker.address}">${formatTorEndpoint(maker.address)}</div>
+                <div class="market-address" title="${maker.address}">${formatTorEndpoint(maker.address, { start: 8, end: 6, ellipsis: '...', stripOnion: true })}</div>
                 <div class="market-number primary">${formatSats(maker.baseFee)}</div>
                 <div class="market-number">${maker.volumeFee}</div>
                 <div class="market-number">${maker.timeFee}</div>
@@ -914,7 +888,7 @@ export function Market(container) {
       const address = pollBtn.dataset.makerPoll;
       if (activeMakerPolls.has(address)) {
         showError(
-          `Poll already in progress for ${formatTorEndpoint(address)}.`
+          `Poll already in progress for ${formatTorEndpoint(address, { start: 8, end: 6, ellipsis: '...', stripOnion: true })}.`
         );
         return;
       }
@@ -968,7 +942,7 @@ export function Market(container) {
   });
 
   initialize();
-  startSyncStateMonitor();
+  startSyncMonitor();
 
   window.addEventListener('beforeunload', () => {
     if (syncCheckInterval) {

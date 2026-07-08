@@ -1,3 +1,5 @@
+import { makeRPCCall } from '../../js/coinswapHelpers.js';
+
 /**
  * Bitcoin Core RPC Connection Manager
  * Handles connection to bitcoind and manages connection state
@@ -33,54 +35,7 @@ export class BitcoindConnection {
         }
 
         const { host = '127.0.0.1', port = 38332, username, password } = this.config.rpc;
-        
-        if (!username || !password) {
-            throw new Error('RPC username and password are required');
-        }
-
-        const url = `http://${host}:${port}`;
-        const auth = btoa(`${username}:${password}`);
-        
-        const body = {
-            jsonrpc: "1.0",
-            id: Date.now(),
-            method: method,
-            params: params
-        };
-
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Basic ${auth}`
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    throw new Error('Authentication failed - check RPC username/password');
-                } else if (response.status === 404) {
-                    throw new Error('Bitcoin Core RPC not found - is bitcoind running?');
-                } else {
-                    throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
-                }
-            }
-
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(`RPC error: ${data.error.message}`);
-            }
-
-            return data.result;
-        } catch (error) {
-            if (error instanceof TypeError && error.message.includes('fetch')) {
-                throw new Error('Cannot connect to Bitcoin Core - make sure bitcoind is running and accessible');
-            }
-            throw error;
-        }
+        return makeRPCCall({ host, port, username, password }, method, params);
     }
 
     async testConnection() {

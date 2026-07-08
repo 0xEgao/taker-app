@@ -1,4 +1,5 @@
 import { icons } from '../../js/icons.js';
+import { getRestUrl, getZmqAddress, makeRPCCall, wirePasswordToggle } from '../../js/coinswapHelpers.js';
 
 export function FirstTimeSetupModal(container, onComplete) {
   const defaultWalletName = `taker-wallet-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -323,11 +324,11 @@ export function FirstTimeSetupModal(container, onComplete) {
       class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
       aria-label="Toggle password visibility"
     >
-      <svg class="eye-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg data-eye="show" class="eye-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
       </svg>
-      <svg class="eye-slash-icon w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg data-eye="hide" class="eye-slash-icon w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
       </svg>
     </button>
@@ -336,8 +337,8 @@ export function FirstTimeSetupModal(container, onComplete) {
 <div>
   <label class="block text-sm text-gray-400 mb-2">Confirm Password <span class="text-danger">*</span></label>
   <div class="relative">
-    <input 
-      type="password" 
+    <input
+      type="password"
       id="create-password-confirm"
       placeholder="Re-enter your password"
       class="w-full bg-surface border border-gray-600 rounded-lg px-4 py-2 pr-10 text-white text-sm focus:outline-none focus:border-primary transition-colors"
@@ -348,11 +349,11 @@ export function FirstTimeSetupModal(container, onComplete) {
       class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
       aria-label="Toggle password visibility"
     >
-      <svg class="eye-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg data-eye="show" class="eye-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
       </svg>
-      <svg class="eye-slash-icon w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg data-eye="hide" class="eye-slash-icon w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
       </svg>
     </button>
@@ -423,11 +424,11 @@ export function FirstTimeSetupModal(container, onComplete) {
       class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
       aria-label="Toggle password visibility"
     >
-      <svg class="eye-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg data-eye="show" class="eye-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
       </svg>
-      <svg class="eye-slash-icon w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg data-eye="hide" class="eye-slash-icon w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
       </svg>
     </button>
@@ -558,18 +559,6 @@ export function FirstTimeSetupModal(container, onComplete) {
           'Create a fresh wallet, load an existing one, or restore from backup to finish setup.';
       }
     }
-  }
-
-  function getRpcUrl(host, port) {
-    return `http://${host}:${port}`;
-  }
-
-  function getRestUrl(host, port) {
-    return `${getRpcUrl(host, port)}/rest/chaininfo.json`;
-  }
-
-  function getZmqAddress(port) {
-    return `tcp://127.0.0.1:${port}`;
   }
 
   function renderConnectionResults(resultDiv, results) {
@@ -962,46 +951,13 @@ export function FirstTimeSetupModal(container, onComplete) {
     return config;
   }
 
-  async function makeRpcCall(method, params = []) {
-    const host = modal.querySelector('#setup-rpc-host').value;
-    const port = modal.querySelector('#setup-rpc-port').value;
-    const username = modal.querySelector('#setup-rpc-username').value;
-    const password = modal.querySelector('#setup-rpc-password').value;
-
-    if (!username || !password) {
-      throw new Error('RPC username and password are required');
-    }
-
-    const response = await fetch(getRpcUrl(host, port), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${btoa(`${username}:${password}`)}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: '1.0',
-        id: Date.now(),
-        method,
-        params,
-      }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Authentication failed - check RPC username/password');
-      }
-      if (response.status === 403) {
-        throw new Error('Access forbidden - check rpcallowip in bitcoin.conf');
-      }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    if (data.error) {
-      throw new Error(`RPC Error: ${data.error.message}`);
-    }
-
-    return data.result;
+  function getRpcConfigFromInputs() {
+    return {
+      host: modal.querySelector('#setup-rpc-host').value,
+      port: modal.querySelector('#setup-rpc-port').value,
+      username: modal.querySelector('#setup-rpc-username').value,
+      password: modal.querySelector('#setup-rpc-password').value,
+    };
   }
 
   // Real node connection test
@@ -1022,10 +978,11 @@ export function FirstTimeSetupModal(container, onComplete) {
     const zmqPort = parseInt(modal.querySelector('#setup-zmq-port').value, 10);
 
     try {
+      const rpcConfig = getRpcConfigFromInputs();
       const [blockchainInfo, networkInfo, restResponse, zmqResult] =
         await Promise.allSettled([
-          makeRpcCall('getblockchaininfo'),
-          makeRpcCall('getnetworkinfo'),
+          makeRPCCall(rpcConfig, 'getblockchaininfo'),
+          makeRPCCall(rpcConfig, 'getnetworkinfo'),
           fetch(getRestUrl(host, port)),
           window.api.testTcpPort({ host: '127.0.0.1', port: zmqPort }),
         ]);
@@ -1348,36 +1305,18 @@ export function FirstTimeSetupModal(container, onComplete) {
     });
   }
 
-  // Reusable function to toggle password visibility
-  function setupPasswordToggle(toggleButtonId, passwordInputId) {
-    const toggleButton = modal.querySelector(toggleButtonId);
-    if (!toggleButton) return;
-
-    toggleButton.addEventListener('click', () => {
-      const passwordInput = modal.querySelector(passwordInputId);
-      const eyeIcon = toggleButton.querySelector('.eye-icon');
-      const eyeSlashIcon = toggleButton.querySelector('.eye-slash-icon');
-
-      if (passwordInput.type === 'password') {
-        passwordInput.type = 'text';
-        eyeIcon.classList.add('hidden');
-        eyeSlashIcon.classList.remove('hidden');
-      } else {
-        passwordInput.type = 'password';
-        eyeIcon.classList.remove('hidden');
-        eyeSlashIcon.classList.add('hidden');
-      }
-    });
-  }
-
-  // Setup all password toggles
-  setupPasswordToggle('#toggle-create-password', '#create-password');
-  setupPasswordToggle(
-    '#toggle-create-password-confirm',
-    '#create-password-confirm'
+  wirePasswordToggle(
+    modal.querySelector('#create-password'),
+    modal.querySelector('#toggle-create-password')
   );
-  setupPasswordToggle('#toggle-rpc-password', '#setup-rpc-password');
-  setupPasswordToggle('#toggle-load-password', '#load-password');
+  wirePasswordToggle(
+    modal.querySelector('#create-password-confirm'),
+    modal.querySelector('#toggle-create-password-confirm')
+  );
+  wirePasswordToggle(
+    modal.querySelector('#load-password'),
+    modal.querySelector('#toggle-load-password')
+  );
 
   [
     '#setup-rpc-host',

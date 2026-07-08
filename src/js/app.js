@@ -13,6 +13,7 @@ import { FirstTimeSetupModal } from '../components/settings/FirstTimeSetup.js';
 import { SwapStateManager } from '../components/swap/SwapStateManager.js';
 import { ConnectionStatusComponent } from '../components/connection/ConnectionStatus.js';
 import { bitcoindConnection } from '../components/connection/BitcoindConnection.js';
+import { showToast } from './coinswapHelpers.js';
 import { TakerInitializationComponent } from '../components/taker/TakerInitialization.js';
 import { refreshBtcPriceUsd } from './price.js';
 
@@ -30,7 +31,10 @@ const components = {
   about: AboutComponent,
 };
 
-// Background swap manager - runs independently of UI components
+// Background swap manager - runs independently of UI components.
+// This is the single canonical 1s active-swap poller; other components
+// (e.g. Nav.js) listen for its 'swap-state-tick' event instead of polling
+// SwapStateManager themselves.
 let backgroundSwapManager = null;
 
 async function startBackgroundSwapManager() {
@@ -43,6 +47,9 @@ async function startBackgroundSwapManager() {
 
   backgroundSwapManager = setInterval(async () => {
     const activeSwap = await SwapStateManager.getActiveSwap();
+    window.dispatchEvent(
+      new CustomEvent('swap-state-tick', { detail: { activeSwap } })
+    );
     if (!activeSwap) {
       stopBackgroundSwapManager();
       return;
@@ -164,60 +171,16 @@ function startTakerInitWithConfig(config) {
       console.log('⏭️ Taker initialization skipped');
     } else {
       console.log('✅ Taker initialized');
-      startBackgroundOfferbookSync();
+      // Fire-and-forget: Market.js's sync monitor picks this up whenever the
+      // user visits the Market page, whether it's still running or already done.
+      window.api.taker.syncOfferbookAndWait().then((result) => {
+        if (!result.success) {
+          console.warn('⚠️ Background offerbook sync failed to start:', result.error);
+        }
+      });
     }
     startMainApp();
   });
-}
-
-let offerbookSyncPromise = null;
-
-async function startBackgroundOfferbookSync() {
-  if (offerbookSyncPromise) return offerbookSyncPromise;
-
-  offerbookSyncPromise = runBackgroundOfferbookSync().finally(() => {
-    offerbookSyncPromise = null;
-  });
-
-  return offerbookSyncPromise;
-}
-
-async function runBackgroundOfferbookSync() {
-  try {
-    console.log('🔄 Starting background offerbook sync...');
-    const syncResult = await window.api.taker.syncOfferbookAndWait();
-    if (!syncResult.success) {
-      console.warn(
-        '⚠️ Background offerbook sync failed to start:',
-        syncResult.error
-      );
-      return;
-    }
-    const syncId = syncResult.syncId;
-    await new Promise((resolve) => {
-      const poll = setInterval(async () => {
-        try {
-          const status = await window.api.taker.getSyncStatus(syncId);
-          const syncStatus = (status.sync || {}).status || 'syncing';
-          if (
-            !status.success ||
-            syncStatus === 'completed' ||
-            syncStatus === 'failed'
-          ) {
-            clearInterval(poll);
-            resolve();
-          }
-        } catch (err) {
-          console.warn('⚠️ Sync poll error:', err.message);
-          clearInterval(poll);
-          resolve();
-        }
-      }, 1000);
-    });
-    console.log('✅ Background offerbook sync complete');
-  } catch (err) {
-    console.warn('⚠️ Background offerbook sync error:', err.message);
-  }
 }
 
 // Start the main app after bitcoind connection is established
@@ -304,20 +267,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function showSetupSuccess() {
-  const successDiv = document.createElement('div');
-  successDiv.className = 'app-toast top transition-opacity duration-300';
-  successDiv.innerHTML = `
-      <div class="flex items-center">
+  showToast(
+    `<div class="flex items-center">
         <span class="mr-2">✔</span>
         <span>Setup completed successfully!</span>
-      </div>
-    `;
-  document.body.appendChild(successDiv);
-
-  setTimeout(() => {
-    successDiv.style.opacity = '0';
-    setTimeout(() => successDiv.remove(), 300);
-  }, 3000);
+      </div>`,
+    { className: 'app-toast top transition-opacity duration-300', duration: 3000, html: true }
+  );
 }
 
 // Export functions for components to use

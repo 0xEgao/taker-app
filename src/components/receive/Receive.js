@@ -1,14 +1,6 @@
 import { icons } from '../../js/icons.js';
 import { formatSats } from '../../js/price.js';
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { explorerAddressUrl, detectAddressType, getDerivationPath, escapeHtml, copyToText } from '../../js/coinswapHelpers.js';
 
 export function ReceiveComponent(container) {
   const content = document.createElement('div');
@@ -196,53 +188,12 @@ export function ReceiveComponent(container) {
     modal
       .querySelector('.receive-qr-modal-close')
       ?.addEventListener('click', closeQrPopup);
-    modal.querySelector('#copy-qr-address')?.addEventListener('click', () => {
-      copyToClipboard(currentAddress);
-      const button = modal.querySelector('#copy-qr-address');
-      if (button) {
-        button.innerHTML = `${icons.check(15)} Copied`;
-        button.classList.add('copied');
-      }
+    modal.querySelector('#copy-qr-address')?.addEventListener('click', (event) => {
+      copyToClipboard(currentAddress, event.currentTarget);
     });
 
     document.body.appendChild(modal);
     window.addEventListener('keydown', handleQrPopupKeydown);
-  }
-
-  function detectAddressType(address, fallbackSpendType = '') {
-    if (
-      address.startsWith('bc1q') ||
-      address.startsWith('tb1q') ||
-      address.startsWith('bcrt1q')
-    ) {
-      return address.length > 50 ? 'P2WSH' : 'P2WPKH';
-    }
-    if (
-      address.startsWith('bc1p') ||
-      address.startsWith('bcrt1p') ||
-      address.startsWith('tb1p')
-    ) {
-      return 'P2TR';
-    }
-    if (address.startsWith('3') || address.startsWith('2')) return 'P2SH';
-    if (
-      address.startsWith('1') ||
-      address.startsWith('m') ||
-      address.startsWith('n')
-    ) {
-      return 'P2PKH';
-    }
-
-    const spendType = String(fallbackSpendType || '').toLowerCase();
-    if (spendType.includes('contract') || spendType.includes('swap'))
-      return 'P2WSH';
-    return 'P2WPKH';
-  }
-
-  function getDerivationPath(type, index = '-') {
-    if (type === 'P2TR') return `m/86'/0'/0'/0/${index}`;
-    if (type === 'P2SH' || type === 'P2PKH') return `m/49'/0'/0'/0/${index}`;
-    return `m/84'/0'/0'/0/${index}`;
   }
 
   async function getAddressesFromTransactions() {
@@ -293,25 +244,18 @@ export function ReceiveComponent(container) {
     }
   }
 
-  async function copyToClipboard(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-    }
-
-    copyButton.innerHTML = `${icons.check(15)} Copied`;
-    copyButton.classList.add('copied');
+  function animateCopyButton(button) {
+    if (!button) return;
+    button.innerHTML = `${icons.check(15)} Copied`;
+    button.classList.add('copied');
     setTimeout(() => {
-      copyButton.innerHTML = `${icons.copy(15)} Copy`;
-      copyButton.classList.remove('copied');
+      button.innerHTML = `${icons.copy(15)} Copy`;
+      button.classList.remove('copied');
     }, 1800);
+  }
+
+  async function copyToClipboard(text, button = copyButton) {
+    if (await copyToText(text)) animateCopyButton(button);
   }
 
   function updateTypeTabs(type) {
@@ -527,7 +471,7 @@ export function ReceiveComponent(container) {
 
   viewMempoolButton.addEventListener('click', () => {
     if (currentAddress) {
-      window.open(`https://mempool.citadelfoss.xyz/address/${encodeURIComponent(currentAddress)}`, '_blank');
+      window.open(explorerAddressUrl(currentAddress), '_blank');
     }
   });
 

@@ -1,6 +1,21 @@
 import { icons } from '../../js/icons.js';
-import { getBtcPriceUsd, SATS_SYMBOL } from '../../js/price.js';
+import { getBtcPriceUsd, SATS_SYMBOL, formatSats } from '../../js/price.js';
 import { openSwapReport } from '../swap/SwapHistory.js';
+import {
+  explorerTxUrl,
+  escapeHtml,
+  getUtxoKind,
+  getUtxoKindLabel,
+  hasUsdPrice as sharedHasUsdPrice,
+  getAmountUnitLabel as sharedGetAmountUnitLabel,
+  getAmountConversionLabels as sharedGetAmountConversionLabels,
+  sumSelectedUtxos,
+} from '../../js/coinswapHelpers.js';
+
+const estimateTxSize = (numInputs, numOutputs) =>
+  Math.ceil(10.5 + 68 * numInputs + 31 * numOutputs + 31);
+const estimateFee = (feeRate, numInputs, numOutputs) =>
+  feeRate * estimateTxSize(numInputs, numOutputs);
 
 export function SendComponent(container, preSelectedUtxos = null) {
   const content = document.createElement('div');
@@ -17,16 +32,7 @@ export function SendComponent(container, preSelectedUtxos = null) {
   const btcPrice = getBtcPriceUsd();
 
   function hasUsdPrice() {
-    return Number.isFinite(Number(btcPrice)) && Number(btcPrice) > 0;
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return sharedHasUsdPrice(btcPrice);
   }
 
   // New state for multi-address and signed tx
@@ -40,42 +46,12 @@ export function SendComponent(container, preSelectedUtxos = null) {
   let availableBalance = 0;
   let previouslyUsedAddresses = new Set();
 
-  function getUtxoKind(utxo) {
-    return String(utxo?.type || '').toLowerCase().includes('swap')
-      ? 'swap'
-      : 'regular';
-  }
-
-  function getUtxoKindLabel(utxo) {
-    return getUtxoKind(utxo) === 'swap' ? 'Swap' : 'Regular';
-  }
-
   function getAmountUnitLabel(unit = amountUnit) {
-    if (unit === 'sats') return SATS_SYMBOL;
-    return unit.toUpperCase();
+    return sharedGetAmountUnitLabel(unit);
   }
 
   function getAmountConversionLabels(amountSats, selectedUnit = amountUnit) {
-    const labels = [];
-    const btcAmount = amountSats / 100000000;
-
-    if (selectedUnit !== 'sats') {
-      labels.push(`= ${Math.round(amountSats || 0).toLocaleString()} ${SATS_SYMBOL}`);
-    }
-    if (selectedUnit !== 'btc') {
-      labels.push(`= ${btcAmount.toFixed(8)} BTC`);
-    }
-    if (selectedUnit !== 'usd' && hasUsdPrice()) {
-      labels.push(`$${(btcAmount * btcPrice).toFixed(2)} USD`);
-    } else if (selectedUnit !== 'usd') {
-      labels.push('USD price unavailable');
-    }
-
-    return labels;
-  }
-
-  function formatSatsHtml(sats) {
-    return `${Math.round(Number(sats || 0)).toLocaleString()} ${SATS_SYMBOL}`;
+    return sharedGetAmountConversionLabels(amountSats, selectedUnit, btcPrice);
   }
 
   function formatSatsText(sats) {
@@ -216,16 +192,13 @@ export function SendComponent(container, preSelectedUtxos = null) {
     const numInputs =
       selectionMode === 'manual' ? Math.max(1, selectedUtxos.length) : 1;
     const numOutputs = validRecipients.length;
-    const estimatedTxSize = Math.ceil(
-      10.5 + 68 * numInputs + 31 * numOutputs + 31
-    );
-    const estimatedFee = selectedFeeRate * estimatedTxSize;
+    const estimatedFee = estimateFee(selectedFeeRate, numInputs, numOutputs);
 
     const total = totalAmount + estimatedFee;
     if (selectionMode === 'manual' && totalAmount > availableForSpending) {
       errors.push(validationMessage(
         `Amount (${formatSatsText(totalAmount)}) exceeds selected UTXOs (${formatSatsText(availableForSpending)})`,
-        `Amount (${formatSatsHtml(totalAmount)}) exceeds selected UTXOs (${formatSatsHtml(availableForSpending)})`
+        `Amount (${formatSats(totalAmount)}) exceeds selected UTXOs (${formatSats(availableForSpending)})`
       )
       );
     }
@@ -234,7 +207,7 @@ export function SendComponent(container, preSelectedUtxos = null) {
       const shortfall = total - availableForSpending;
       errors.push(validationMessage(
         `Need ${formatSatsText(shortfall)} more`,
-        `Need ${formatSatsHtml(shortfall)} more`
+        `Need ${formatSats(shortfall)} more`
       ));
     }
 
@@ -572,10 +545,7 @@ export function SendComponent(container, preSelectedUtxos = null) {
     if (countEl) countEl.textContent = selectedUtxos.length;
 
     if (valueEl) {
-      const totalValue = selectedUtxos.reduce(
-        (sum, index) => sum + availableUtxos[index].amount,
-        0
-      );
+      const totalValue = sumSelectedUtxos(selectedUtxos, availableUtxos);
       valueEl.textContent = `${selectedUtxos.length} selected`;
       valueEl.title =
         totalValue.toLocaleString() +
@@ -589,16 +559,22 @@ export function SendComponent(container, preSelectedUtxos = null) {
   }
 
   function getSelectedUtxosTotal() {
-    if (selectedUtxos.length === 0) return 0;
-    return selectedUtxos.reduce(
-      (sum, index) => sum + availableUtxos[index].amount,
-      0
-    );
+    return sumSelectedUtxos(selectedUtxos, availableUtxos);
   }
 
   function checkUtxoTypeWarning() {
     const warningEl = content.querySelector('#utxo-warning');
     if (!warningEl) return;
+
+    if (selectionMode !== 'manual') {
+      warningEl.classList.add('hidden');
+      return;
+    }
+
+    if (selectedUtxos.length < 2) {
+      warningEl.classList.add('hidden');
+      return;
+    }
 
     const types = selectedUtxos.map((index) => getUtxoKind(availableUtxos[index]));
     const hasRegular = types.includes('regular');
@@ -718,10 +694,8 @@ export function SendComponent(container, preSelectedUtxos = null) {
     const numInputs =
       selectionMode === 'manual' ? Math.max(1, selectedUtxos.length) : 1;
 
-    const estimatedTxSize = Math.ceil(
-      10.5 + 68 * numInputs + 31 * numOutputs + 31
-    );
-    const estimatedFee = selectedFeeRate * estimatedTxSize;
+    const estimatedTxSize = estimateTxSize(numInputs, numOutputs);
+    const estimatedFee = estimateFee(selectedFeeRate, numInputs, numOutputs);
     const total = amountSats + estimatedFee;
 
     let availableForSpending = availableBalance;
@@ -835,8 +809,8 @@ export function SendComponent(container, preSelectedUtxos = null) {
 
       const numInputs = selectionMode === 'manual' ? selectedUtxos.length : 1;
       const numOutputs = recipients.filter((r) => r.address).length;
-      actualTxSize = Math.ceil(10.5 + 68 * numInputs + 31 * numOutputs + 31);
-      actualFee = selectedFeeRate * actualTxSize;
+      actualTxSize = estimateTxSize(numInputs, numOutputs);
+      actualFee = estimateFee(selectedFeeRate, numInputs, numOutputs);
 
       signedTx = { id: 'simulated-tx' };
       signedTxHex = '0200000001' + 'ff'.repeat(100);
@@ -957,7 +931,7 @@ export function SendComponent(container, preSelectedUtxos = null) {
               <p>${safeAddress}</p>
               <span>TXID</span>
               <div>
-                <a href="https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(txid)}" target="_blank" rel="noreferrer">
+                <a href="${explorerTxUrl(txid)}" target="_blank" rel="noreferrer">
                   ${safeTxid}
                 </a>
               </div>

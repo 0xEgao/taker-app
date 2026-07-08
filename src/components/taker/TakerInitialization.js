@@ -1,4 +1,5 @@
 import { icons } from '../../js/icons.js';
+import { wirePasswordToggle } from '../../js/coinswapHelpers.js';
 
 export function TakerInitializationComponent(container, config, onInitialized) {
   const initDiv = document.createElement('div');
@@ -59,8 +60,8 @@ export function TakerInitializationComponent(container, config, onInitialized) {
                         aria-label="Show password"
                         title="Show password"
                     >
-                        <span class="password-show-icon">${icons.eye(18)}</span>
-                        <span class="password-hide-icon hidden">${icons.eyeOff(18)}</span>
+                        <span data-eye="show" class="password-show-icon">${icons.eye(18)}</span>
+                        <span data-eye="hide" class="password-hide-icon hidden">${icons.eyeOff(18)}</span>
                     </button>
                 </div>
                 <div id="password-error" class="app-loader-message error compact hidden">
@@ -246,31 +247,10 @@ export function TakerInitializationComponent(container, config, onInitialized) {
       startTakerInitialization(password);
     });
 
-  document
-    .getElementById('toggle-unlock-password')
-    ?.addEventListener('click', () => {
-      const passwordInput = document.getElementById('unlock-password-input');
-      const showIcon = document.querySelector(
-        '#toggle-unlock-password .password-show-icon'
-      );
-      const hideIcon = document.querySelector(
-        '#toggle-unlock-password .password-hide-icon'
-      );
-      const isHidden = passwordInput.type === 'password';
-
-      passwordInput.type = isHidden ? 'text' : 'password';
-      showIcon?.classList.toggle('hidden', isHidden);
-      hideIcon?.classList.toggle('hidden', !isHidden);
-
-      const label = isHidden ? 'Hide password' : 'Show password';
-      document
-        .getElementById('toggle-unlock-password')
-        ?.setAttribute('aria-label', label);
-      document
-        .getElementById('toggle-unlock-password')
-        ?.setAttribute('title', label);
-      passwordInput.focus();
-    });
+  wirePasswordToggle(
+    document.getElementById('unlock-password-input'),
+    document.getElementById('toggle-unlock-password')
+  );
 
   document
     .getElementById('unlock-password-input')

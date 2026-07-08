@@ -976,6 +976,8 @@ function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+// Mirrors src/js/coinswapHelpers.js's normalizeSwapProtocol(). Keep in sync —
+// this file is CommonJS, the renderer is ESM, no bundler links them.
 function normalizeSwapProtocol(value, fallbackIsTaproot = false) {
   switch (value) {
     case 'v2':

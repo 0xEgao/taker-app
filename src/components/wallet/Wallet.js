@@ -1,6 +1,7 @@
 import { formatSats } from '../../js/price.js';
 import { icons } from '../../js/icons.js';
 import { openSwapReport } from '../swap/SwapHistory.js';
+import { explorerTxUrl, detectAddressType, classifySpendType, formatRelativeTime, truncateMiddle } from '../../js/coinswapHelpers.js';
 
 export async function WalletComponent(container) {
   let allTransactions = [];
@@ -48,58 +49,18 @@ export async function WalletComponent(container) {
     }
   }
 
-  function compactId(value, left = 12, right = 8) {
-    const id =
-      typeof value === 'object' && value?.value
-        ? value.value
-        : String(value || '');
-    if (id.length <= left + right + 3) return id;
-    return `${id.substring(0, left)}...${id.substring(id.length - right)}`;
-  }
-
   function formatDate(timestamp) {
     if (!timestamp) return 'Unknown';
-    const date = new Date(timestamp * 1000);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMinutes < 1) return 'Just now';
-    if (diffMinutes < 60) return `${diffMinutes} min ago`;
-    if (diffHours < 24) return `${diffHours} hr ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-    return date.toLocaleDateString();
+    return formatRelativeTime(timestamp * 1000);
   }
 
-  function getSpendTypeDisplay(spendType = '') {
-    const type = spendType.toLowerCase();
-    if (type.includes('seed') || type.includes('regular')) return 'Regular';
-    if (type.includes('swap')) return 'Swap';
-    if (type.includes('contract')) return 'Contract';
-    if (type.includes('fidelity')) return 'Fidelity';
-    return spendType || 'Unknown';
-  }
 
   function getScriptType(utxoData) {
     const utxo = utxoData.utxo || {};
     const spendInfo = utxoData.spendInfo || {};
     const scriptHex = utxo.script_pub_key?.hex || utxo.scriptPubKey?.hex || '';
-    const address = utxo.address || '';
-    const spendType = (spendInfo.spendType || '').toLowerCase();
-
-    if (scriptHex.startsWith('5120') && scriptHex.length === 68)
-      return 'taproot';
-    if (address.startsWith('bc1p') || address.startsWith('tb1p'))
-      return 'taproot';
-    if (scriptHex.startsWith('0014') || scriptHex.startsWith('0020'))
-      return 'segwit';
-    if (address.startsWith('bc1q') || address.startsWith('tb1q'))
-      return 'segwit';
-    if (spendType.includes('swap') || spendType.includes('contract'))
-      return 'segwit';
-    return 'segwit';
+    const type = detectAddressType(utxo.address || '', spendInfo.spendType, scriptHex);
+    return type === 'P2TR' ? 'taproot' : 'segwit';
   }
 
   function getTransactionType(transaction) {
@@ -124,7 +85,7 @@ export async function WalletComponent(container) {
   }
 
   function openMempool(txid) {
-    const url = `https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(txid)}`;
+    const url = explorerTxUrl(txid);
     if (typeof require !== 'undefined') {
       try {
         const { shell } = require('electron');
@@ -159,16 +120,16 @@ export async function WalletComponent(container) {
 
   function calculateUtxoStats() {
     const regular = allUtxos.filter(
-      (u) => getSpendTypeDisplay(u.spendInfo?.spendType) === 'Regular'
+      (u) => classifySpendType(u.spendInfo?.spendType) === 'Regular'
     ).length;
     const contract = allUtxos.filter(
-      (u) => getSpendTypeDisplay(u.spendInfo?.spendType) === 'Contract'
+      (u) => classifySpendType(u.spendInfo?.spendType) === 'Contract'
     ).length;
     const swap = allUtxos.filter(
-      (u) => getSpendTypeDisplay(u.spendInfo?.spendType) === 'Swap'
+      (u) => classifySpendType(u.spendInfo?.spendType) === 'Swap'
     ).length;
     const spendable = allUtxos.filter((u) =>
-      ['Regular', 'Swap'].includes(getSpendTypeDisplay(u.spendInfo?.spendType))
+      ['Regular', 'Swap'].includes(classifySpendType(u.spendInfo?.spendType))
     ).length;
     const confirmed = allUtxos.filter(
       (u) => (u.utxo?.confirmations || 0) > 0
@@ -190,14 +151,14 @@ export async function WalletComponent(container) {
     if (utxoFilter === 'spendable') {
       return allUtxos.filter((utxo) =>
         ['Regular', 'Swap'].includes(
-          getSpendTypeDisplay(utxo.spendInfo?.spendType)
+          classifySpendType(utxo.spendInfo?.spendType)
         )
       );
     }
 
     return allUtxos.filter(
       (utxo) =>
-        getSpendTypeDisplay(utxo.spendInfo?.spendType).toLowerCase() ===
+        classifySpendType(utxo.spendInfo?.spendType).toLowerCase() ===
         utxoFilter
     );
   }
@@ -226,7 +187,7 @@ export async function WalletComponent(container) {
         const utxo = utxoData.utxo || {};
         const txid =
           typeof utxo.txid === 'object' ? utxo.txid.value : utxo.txid;
-        const type = getSpendTypeDisplay(utxoData.spendInfo?.spendType);
+        const type = classifySpendType(utxoData.spendInfo?.spendType);
         const scriptType = getScriptType(utxoData);
         const sourceSwapId = utxoData.spendInfo?.sourceSwapId;
         const hasReport = type === 'Swap' && utxoData.spendInfo?.sourceReportAvailable && sourceSwapId;
@@ -234,13 +195,13 @@ export async function WalletComponent(container) {
         return `
           <div class="app-utxo-row" data-txid="${txid || ''}">
             <span class="app-utxo-main">
-              <span class="app-mono app-id">${compactId(txid, 12, 4)}:${utxo.vout ?? 0}</span>
+              <span class="app-mono app-id">${truncateMiddle(txid, { start: 12, end: 4, ellipsis: '...' })}:${utxo.vout ?? 0}</span>
               <span class="app-amount positive">${formatSats(utxo.amount)}</span>
             </span>
             <span class="app-pill ${scriptType}">${scriptType === 'taproot' ? 'Taproot' : 'SegWit'}</span>
             <span class="app-pill ${type.toLowerCase()}">${type}</span>
             <span class="app-address">
-              ${compactId(utxo.address || 'No address', 10, 6)}
+              ${truncateMiddle(utxo.address || 'No address', { start: 10, end: 6, ellipsis: '...' })}
             </span>
             ${
               hasReport
@@ -327,7 +288,7 @@ export async function WalletComponent(container) {
           <button class="app-tx-row ${directionClass}" data-txid="${txid || ''}" type="button">
             <span class="app-tx-icon" aria-label="${directionLabel}" title="${directionLabel} transaction">${directionIcon}</span>
             <span class="app-tx-mid">
-              <span class="app-mono app-id">${compactId(txid, 16, 8)}</span>
+              <span class="app-mono app-id">${truncateMiddle(txid, { start: 16, end: 8, ellipsis: '...' })}</span>
               <span class="app-tx-meta">
                 <span class="app-conf ${confirmations >= 6 ? 'full' : ''}">${Math.min(confirmations, 6)}/6 conf</span>
                 ${type === 'swap' ? '<span class="app-conf swap">Swap</span>' : ''}

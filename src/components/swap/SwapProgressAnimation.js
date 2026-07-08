@@ -1,27 +1,6 @@
 import { icons } from '../../js/icons.js';
 import { formatSats } from '../../js/price.js';
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function endpointSuffix(value) {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  const host = text
-    .replace(/^https?:\/\//i, '')
-    .replace(/^tcp:\/\//i, '')
-    .split('/')[0]
-    .split(':')[0]
-    .replace(/\.onion$/i, '');
-  if (host.length <= 14) return host;
-  return `${host.slice(0, 8)}…${host.slice(-8)}`;
-}
+import { escapeHtml, formatTorEndpoint } from '../../js/coinswapHelpers.js';
 
 function normalizeTone(color) {
   if (color === 'green' || color === 'success') return 'settled';
@@ -103,7 +82,9 @@ function positionStyle(point, width, height) {
 
 function buildMakerNode(index, angle, cx, cy, radius, address, width, height) {
   const { x, y } = nodeXY(angle, cx, cy, radius);
-  const displayAddress = address ? endpointSuffix(address) : 'Pending';
+  const displayAddress = address
+    ? formatTorEndpoint(address, { start: 8, end: 8, ellipsis: '…', stripOnion: true })
+    : 'Pending';
   const pendingClass = address ? '' : ' is-pending';
 
   return `
@@ -294,7 +275,7 @@ export function createSwapProgressAnimation(stage, options = {}) {
       const node = stage.querySelector(`#maker-${index}`);
       const addressEl = node?.querySelector('.route-address');
       if (!addressEl || !address) return;
-      addressEl.textContent = endpointSuffix(address);
+      addressEl.textContent = formatTorEndpoint(address, { start: 8, end: 8, ellipsis: '…', stripOnion: true });
       addressEl.title = address;
       addressEl.classList.remove('is-pending');
     },

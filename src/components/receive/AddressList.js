@@ -1,18 +1,11 @@
 import { icons } from '../../js/icons.js';
 import { formatSats } from '../../js/price.js';
+import { explorerAddressUrl, detectAddressType, classifySpendType, formatRelativeTime, copyToText, showToast } from '../../js/coinswapHelpers.js';
 
 export function AddressListComponent(container) {
   let currentFilter = 'all';
   let sortBy = 'newest';
   let allAddresses = [];
-
-  function getSpendTypeDisplay(spendType = '') {
-    const normalized = String(spendType || '').toLowerCase();
-    if (normalized.includes('swap')) return 'Swap';
-    if (normalized.includes('contract')) return 'Contract';
-    if (normalized.includes('seed') || normalized.includes('regular')) return 'Regular';
-    return 'Regular';
-  }
 
   function extractSpendType(tx) {
     const candidates = [
@@ -24,7 +17,7 @@ export function AddressListComponent(container) {
     ];
 
     const match = candidates.find((value) => typeof value === 'string' && value.trim());
-    return getSpendTypeDisplay(match);
+    return classifySpendType(match);
   }
 
   // Fetch addresses from transactions
@@ -72,21 +65,6 @@ const result = await window.api.taker.getTransactions(200, 0);
     }
   }
 
-  function detectAddressType(address, fallbackSpendType = '') {
-    if (address.startsWith('bc1q') || address.startsWith('tb1q') || address.startsWith('bcrt1q')) {
-      return address.length > 50 ? 'P2WSH' : 'P2WPKH';
-    }
-    if (address.startsWith('bc1p') || address.startsWith('tb1p') || address.startsWith('bcrt1p')) return 'P2TR';
-    if (address.startsWith('3')) return 'P2SH';
-    if (address.startsWith('1')) return 'P2PKH';
-    if (address.startsWith('2')) return 'P2SH';
-    if (address.startsWith('m') || address.startsWith('n')) return 'P2PKH';
-
-    const spendType = getSpendTypeDisplay(fallbackSpendType);
-    if (spendType === 'Contract' || spendType === 'Swap') return 'P2WSH';
-    return 'P2WPKH';
-  }
-
   function getFilteredAddresses() {
     let addresses = [...allAddresses];
 
@@ -124,16 +102,7 @@ const result = await window.api.taker.getTransactions(200, 0);
 
   function formatLastUsed(timestamp) {
     if (!timestamp) return 'Never';
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return date.toLocaleDateString();
+    return formatRelativeTime(timestamp);
   }
 
   function getStats() {
@@ -149,35 +118,14 @@ const result = await window.api.taker.getTransactions(200, 0);
   }
 
   async function copyToClipboard(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast('Address copied!');
-    } catch (err) {
-      console.error('Failed to copy:', err);
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      showToast('Address copied!');
+    if (await copyToText(text)) {
+      showToast('Address copied!', { className: 'app-toast bottom transition-opacity', duration: 2000 });
     }
-  }
-
-  function showToast(message) {
-    const toast = document.createElement('div');
-    toast.className = 'app-toast bottom transition-opacity';
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      setTimeout(() => toast.remove(), 300);
-    }, 2000);
   }
 
   function exportAddresses() {
     if (allAddresses.length === 0) {
-      showToast('No addresses to export');
+      showToast('No addresses to export', { className: 'app-toast bottom transition-opacity', duration: 2000 });
       return;
     }
 
@@ -196,7 +144,7 @@ const result = await window.api.taker.getTransactions(200, 0);
     a.click();
     URL.revokeObjectURL(url);
 
-    showToast('Addresses exported!');
+    showToast('Addresses exported!', { className: 'app-toast bottom transition-opacity', duration: 2000 });
   }
 
   function render() {
@@ -324,7 +272,7 @@ const result = await window.api.taker.getTransactions(200, 0);
                       <tr class="address-row" data-address="${addr.address}">
                         <td>
                           <div class="address-cell">
-                            <a href="https://mempool.citadelfoss.xyz/address/${encodeURIComponent(addr.address)}" 
+                            <a href="${explorerAddressUrl(addr.address)}"
                                target="_blank" 
                                title="${addr.address}">
                                 ${addr.address.substring(0, 12)}...${addr.address.substring(addr.address.length - 8)}
@@ -439,7 +387,7 @@ const result = await window.api.taker.getTransactions(200, 0);
         refreshButton.disabled = true;
         allAddresses = await fetchAddresses();
         render();
-        showToast('Address list refreshed');
+        showToast('Address list refreshed', { className: 'app-toast bottom transition-opacity', duration: 2000 });
       });
     }
   }

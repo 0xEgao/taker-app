@@ -1,5 +1,6 @@
 import { icons } from '../../js/icons.js';
 import { SATS_SYMBOL } from '../../js/price.js';
+import { explorerTxUrl, normalizeSwapProtocol, escapeHtml, formatDuration, copyToText, truncateMiddle, formatTorEndpoint, showToast } from '../../js/coinswapHelpers.js';
 
 function satsToBtc(sats) {
   const normalized = Number(sats || 0);
@@ -10,21 +11,6 @@ function satsToBtc(sats) {
 
 export function SwapReportComponent(container, swapReport, options = {}) {
   const trackerInfo = options.trackerInfo || null;
-  function normalizeProtocol(value, fallbackIsTaproot = false) {
-    switch (value) {
-      case 'v2':
-      case 'Taproot':
-        return 'Taproot';
-      case 'Unified':
-        return 'Unified';
-      case 'v1':
-      case 'Legacy':
-      case 'Legacy P2WSH':
-        return 'Legacy';
-      default:
-        return fallbackIsTaproot ? 'Taproot' : 'Legacy';
-    }
-  }
 
   console.log('📊 SwapReportComponent loading with report:', swapReport);
   console.log('📊 Report keys:', Object.keys(swapReport || {}));
@@ -184,7 +170,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     normalizedTargetAmount > 0 ? (rawTotalFee / normalizedTargetAmount) * 100 : 0
   );
 
-  const protocol = normalizeProtocol(
+  const protocol = normalizeSwapProtocol(
     swapReport.protocol || nestedReport.protocol,
     swapReport.isTaproot || nestedReport.isTaproot || false
   );
@@ -370,25 +356,9 @@ export function SwapReportComponent(container, swapReport, options = {}) {
   console.log('📊 Normalized report:', report);
 
   // Helper functions
-  function formatDuration(seconds) {
-    if (typeof seconds !== 'number' || isNaN(seconds)) return '0m 0s';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}m ${secs}s`;
-  }
-
   function formatNumber(num) {
     if (typeof num !== 'number' || isNaN(num)) return '0';
     return num.toLocaleString();
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
   }
 
   function getFirstField(source, keys, fallback = null) {
@@ -499,7 +469,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     const vout = getFirstField(utxo, ['vout', 'index', 'output_index']);
     if (type) parts.push(String(type));
     if (vout != null) parts.push(`vout ${vout}`);
-    if (address) parts.push(truncateAddress(String(address), 10, 8));
+    if (address) parts.push(truncateMiddle(String(address), { start: 10, end: 8, ellipsis: '...' }));
     return parts.join(' · ');
   }
 
@@ -575,25 +545,6 @@ export function SwapReportComponent(container, swapReport, options = {}) {
       report.targetAmount > 0 ? (report.totalFee / report.targetAmount) * 100 : 0;
   }
 
-  function truncateAddress(addr, start = 14, end = 16) {
-    if (!addr || typeof addr !== 'string') return 'unknown';
-
-    const separatorIndex = addr.lastIndexOf(':');
-    if (separatorIndex === -1) {
-      if (addr.length <= start + end) return addr;
-      return `${addr.substring(0, start)}...${addr.substring(addr.length - end)}`;
-    }
-
-    const host = addr.substring(0, separatorIndex);
-    const port = addr.substring(separatorIndex + 1);
-
-    if (host.length <= start + end + 3) {
-      return `${host}:${port}`;
-    }
-
-    return `${host.substring(0, start)}...${host.substring(host.length - end)}:${port}`;
-  }
-
   function getOutputAddress(output) {
     if (Array.isArray(output)) {
       return output.find((entry) => typeof entry === 'string' && entry.trim()) || '';
@@ -654,23 +605,16 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     `;
   }
 
-  function copyToClipboard(text) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        showNotification('Copied to clipboard!');
-      })
-      .catch((err) => {
-        console.error('Copy failed:', err);
-      });
+  async function copyToClipboard(text) {
+    if (await copyToText(text)) {
+      showNotification('Copied to clipboard!');
+    } else {
+      showNotification('Copy failed');
+    }
   }
 
   function showNotification(message) {
-    const notification = document.createElement('div');
-    notification.className = 'app-toast top';
-    notification.textContent = message;
-    document.body.appendChild(notification);
-    setTimeout(() => notification.remove(), 2000);
+    showToast(message, { className: 'app-toast top', duration: 2000, fade: true });
   }
 
   // Show maker popup
@@ -935,7 +879,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
         <div class="maker-card-wrap">
           <button class="maker-card swap-report-maker-row" data-maker-index="${idx}">
             <span>Maker ${String(idx + 1).padStart(2, '0')}</span>
-            <strong>${truncateAddress(addr, 20, 18)}</strong>
+            <strong>${escapeHtml(formatTorEndpoint(addr, { start: 20, end: 18, ellipsis: '...', keepPort: true }))}</strong>
             <em>View ${icons.externalLink(12)}</em>
           </button>
           ${isFailedReport && progress ? buildHandshakeHtml(progress) : ''}
@@ -958,7 +902,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
             <button class="maker-fee-row" data-maker-index="${idx}" type="button">
               <span>Maker ${idx + 1}</span>
               <strong>${getMakerFeeDisplay(idx)}</strong>
-              <em>${escapeHtml(truncateAddress(addr, 10, 8))}</em>
+              <em>${escapeHtml(formatTorEndpoint(addr, { start: 10, end: 8, ellipsis: '...', keepPort: true }))}</em>
             </button>
           `;
         }).join('')}
@@ -971,18 +915,12 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     return new Date(ts * 1000).toLocaleString();
   }
 
-  function truncateHex(hex, start = 12, end = 8) {
-    if (!hex || typeof hex !== 'string') return hex || '—';
-    if (hex.length <= start + end + 3) return hex;
-    return `${hex.slice(0, start)}…${hex.slice(-end)}`;
-  }
-
   function hexRow(label, value) {
     if (!value) return '';
     // ECDSA signatures serialize as { signature: hex, sighash_type: ... }
     if (value && typeof value === 'object' && value.signature) value = value.signature;
     if (typeof value !== 'string') value = JSON.stringify(value);
-    const display = truncateHex(value);
+    const display = truncateMiddle(value, { start: 12, end: 8 });
     return `
       <div class="dp-row">
         <span class="dp-label">${label}</span>
@@ -997,7 +935,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     const parts = typeof outpoint === 'string' ? outpoint.split(':') : [];
     const txid = parts.length >= 2 ? parts.slice(0, -1).join(':') : String(outpoint);
     const vout = parts.length >= 2 ? parts[parts.length - 1] : '';
-    const display = truncateHex(txid) + (vout !== '' ? `:${vout}` : '');
+    const display = truncateMiddle(txid, { start: 12, end: 8 }) + (vout !== '' ? `:${vout}` : '');
     return `
       <div class="dp-row">
         <span class="dp-label">${label}</span>
@@ -1211,7 +1149,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
 
   content.querySelectorAll('.view-txid-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      window.open(`https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(btn.dataset.txid)}`, '_blank');
+      window.open(explorerTxUrl(btn.dataset.txid), '_blank');
     });
   });
 
@@ -1223,7 +1161,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
   // Deniability proof — external link buttons
   content.querySelectorAll('.dp-ext').forEach((btn) => {
     btn.addEventListener('click', () => {
-      window.open(`https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(btn.dataset.txid)}`, '_blank');
+      window.open(explorerTxUrl(btn.dataset.txid), '_blank');
     });
   });
 
