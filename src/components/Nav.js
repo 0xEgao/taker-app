@@ -1,7 +1,5 @@
-import {
-  SwapStateManager,
-  formatElapsedTime,
-} from './swap/SwapStateManager.js';
+import { SwapStateManager } from './swap/SwapStateManager.js';
+import { formatElapsedTime } from '../js/coinswapHelpers.js';
 
 function navIcon(name) {
   const paths = {
@@ -72,14 +70,16 @@ export async function NavComponent(container) {
   container.appendChild(nav);
 
   if (hasActiveSwap) {
-    const updateInterval = setInterval(async () => {
-      const currentSwap = await SwapStateManager.getActiveSwap();
+    // Reacts to app.js's single canonical 1s poller instead of running its
+    // own duplicate setInterval/getActiveSwap() loop.
+    const handleSwapTick = async (event) => {
+      const currentSwap = event.detail.activeSwap;
       if (
         !currentSwap ||
         currentSwap.status === 'completed' ||
         currentSwap.status === 'failed'
       ) {
-        clearInterval(updateInterval);
+        window.removeEventListener('swap-state-tick', handleSwapTick);
 
         const swapItem = nav.querySelector('[data-nav="swap"]');
         if (swapItem) {
@@ -96,6 +96,7 @@ export async function NavComponent(container) {
           await SwapStateManager.getElapsedTime()
         );
       }
-    }, 1000);
+    };
+    window.addEventListener('swap-state-tick', handleSwapTick);
   }
 }

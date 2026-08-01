@@ -27,7 +27,7 @@ const api1State = {
     isRunning: false, // Is any sync currently running?
     currentSyncId: null, // ID of current sync
     lastSyncTime: null, // When was last sync completed?
-    periodicInterval: null, // setInterval reference for periodic syncs
+    periodicInterval: null, // setInterval reference for the periodic offerbook.json refresh
   },
 };
 
@@ -976,6 +976,8 @@ function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+// Mirrors src/js/coinswapHelpers.js's normalizeSwapProtocol(). Keep in sync —
+// this file is CommonJS, the renderer is ESM, no bundler links them.
 function normalizeSwapProtocol(value, fallbackIsTaproot = false) {
   switch (value) {
     case 'v2':
@@ -1566,52 +1568,6 @@ async function initNAPI() {
 // ============================================================================
 
 function registerTakerHandlers() {
-  ipcMain.handle('preferences:get', async (event, key) => {
-    try {
-      return { success: true, value: store.get(key) };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle('preferences:set', async (event, key, value) => {
-    try {
-      store.set(key, value);
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Add setupLogging handler
-  ipcMain.handle('taker:setupLogging', async (event, { dataDir, level }) => {
-    try {
-      console.log(`🔧 Setting up logging: level=${level}, dataDir=${dataDir}`);
-
-      if (!api1State.coinswapNapi) {
-        await initNAPI();
-      }
-
-      // Default to Taker class for logging setup (shared mechanism)
-      const TakerClass = api1State.coinswapNapi?.Taker;
-
-      if (!TakerClass?.setupLogging) {
-        throw new Error('setupLogging method not available');
-      }
-
-      TakerClass.setupLogging(dataDir, level);
-
-      // Store the preference
-      store.set('logLevel', level);
-
-      console.log('✅ Logging initialized successfully');
-      return { success: true };
-    } catch (error) {
-      console.error('❌ Logging setup failed:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
   // Initialize taker
   ipcMain.handle('taker:initialize', async (event, config) => {
     try {
@@ -1658,7 +1614,7 @@ function registerTakerHandlers() {
       if (api1State.takerInstance) {
         console.log('🔄 Shutting down old taker instance...');
         try {
-          stopPeriodicSync();
+          stopPeriodicOfferbookRefresh();
           if (api1State.walletSyncInterval) {
             clearInterval(api1State.walletSyncInterval);
             api1State.walletSyncInterval = null;
@@ -1782,9 +1738,11 @@ function registerTakerHandlers() {
       // ✅ START BACKGROUND SERVICES
       setTimeout(async () => {
         console.log('🔄 Starting background services...');
-        // Offerbook sync is triggered explicitly on launch and manually by the user.
-        // The Rust backend keeps offerbook.json up to date internally.
+        // Offerbook sync itself is triggered explicitly on launch and manually
+        // by the user — the Rust backend keeps offerbook.json up to date
+        // internally. We just periodically re-read that file (no network call).
         startPeriodicWalletSync();
+        startPeriodicOfferbookRefresh();
         console.log('✅ Background services started');
       }, 2000);
 
@@ -1805,33 +1763,6 @@ function registerTakerHandlers() {
         success: false,
         error: error?.message || String(error || 'Initialization failed'),
       };
-    }
-  });
-
-  ipcMain.handle('taker:shutdown', async () => {
-    try {
-      console.log('🛑 Shutting down taker...');
-      console.trace('Shutdown called from:'); // ← ADD THIS to see who called it
-
-      // Stop wallet sync
-      if (api1State.walletSyncInterval) {
-        clearInterval(api1State.walletSyncInterval);
-        api1State.walletSyncInterval = null;
-      }
-
-      // Shutdown taker instance
-      if (api1State.takerInstance) {
-        safelyShutdownTaker(api1State.takerInstance);
-        api1State.takerInstance = null;
-        api1State.protocolVersion = null;
-        api1State.currentWalletName = null;
-        console.log('✅ Taker shutdown complete');
-      }
-
-      return { success: true };
-    } catch (error) {
-      console.error('❌ Taker shutdown error:', error);
-      return { success: false, error: error.message };
     }
   });
 
@@ -2000,6 +1931,34 @@ function registerTakerHandlers() {
       },
       15 * 60 * 1000 // 15 minutes
     );
+  }
+
+  /**
+   * Periodically re-read offerbook.json from disk (every 15 minutes).
+   *
+   * This does NOT trigger a network sync (syncOfferbookAndWait/Async) — the
+   * Rust backend already keeps offerbook.json current on its own. This is
+   * just a disk read for main-process-side logging/observability, mirroring
+   * the snapshot logging already done around each real sync in startSyncWorker.
+   */
+  function startPeriodicOfferbookRefresh() {
+    stopPeriodicOfferbookRefresh();
+
+    console.log('⏰ Starting periodic offerbook refresh (every 15 minutes)');
+
+    api1State.syncState.periodicInterval = setInterval(
+      () => {
+        console.log('📖 [periodic] Offerbook snapshot', getOfferbookSnapshot());
+      },
+      15 * 60 * 1000 // 15 minutes
+    );
+  }
+
+  function stopPeriodicOfferbookRefresh() {
+    if (api1State.syncState.periodicInterval) {
+      clearInterval(api1State.syncState.periodicInterval);
+      api1State.syncState.periodicInterval = null;
+    }
   }
 
   // Get next address
@@ -2383,43 +2342,6 @@ function registerTakerHandlers() {
     }
   );
 
-  // Check if wallet is encrypted
-  ipcMain.handle(
-    'taker:isWalletEncrypted',
-    async (event, walletPath, walletName) => {
-      try {
-        if (!walletPath) {
-          const name =
-            walletName ||
-            api1State.currentWalletName ||
-            api1State.DEFAULT_WALLET_NAME;
-          walletPath = path.join(api1State.DATA_DIR, 'wallets', name);
-        }
-
-        if (!fs.existsSync(walletPath)) {
-          return false;
-        }
-
-        if (!api1State.coinswapNapi) {
-          await initNAPI();
-          if (!api1State.coinswapNapi) {
-            console.error(
-              'coinswap-napi not loaded for isWalletEncrypted check'
-            );
-            return false;
-          }
-        }
-
-        const isEncrypted =
-          api1State.coinswapNapi.Taker.isWalletEncrypted(walletPath);
-        return isEncrypted;
-      } catch (error) {
-        console.error('Failed to check wallet encryption:', error);
-        return false;
-      }
-    }
-  );
-
   ipcMain.handle('taker:syncOfferbookAndWait', () => {
     return startSyncWorker('manual');
   });
@@ -2704,29 +2626,6 @@ function registerTakerHandlers() {
     }
   });
 
-  // Get good makers
-  ipcMain.handle('taker:getGoodMakers', async () => {
-    try {
-      if (!api1State.takerInstance) {
-        return { success: false, error: 'Taker not initialized' };
-      }
-
-      const offerbookPath = path.join(api1State.DATA_DIR, 'offerbook.json');
-      if (!fs.existsSync(offerbookPath)) {
-        return { success: true, makers: [] };
-      }
-
-      const offerbookData = fs.readFileSync(offerbookPath, 'utf8');
-      const offerbook = JSON.parse(offerbookData);
-      const makers = Array.isArray(offerbook.makers) ? offerbook.makers : [];
-      const goodMakers = makers.filter(isUsableMaker);
-
-      return { success: true, makers: goodMakers };
-    } catch (error) {
-      console.error('❌ Fetch good makers failed:', error);
-      return { success: false, error: error.message };
-    }
-  });
 }
 
 // ============================================================================
@@ -3044,19 +2943,6 @@ function registerSwapStateHandlers() {
     }
   });
 
-  // Clear swap state
-  ipcMain.handle('swapState:clear', async () => {
-    try {
-      const stateFile = path.join(api1State.DATA_DIR, 'swap_state.json');
-      if (fs.existsSync(stateFile)) {
-        fs.unlinkSync(stateFile);
-      }
-      return { success: true };
-    } catch (error) {
-      console.error('❌ Failed to clear swap state:', error);
-      return { success: false, error: error.message };
-    }
-  });
 }
 
 // ============================================================================
@@ -3193,51 +3079,6 @@ function registerTorHandlers() {
       });
 
       socket.connect(port, host);
-    });
-  });
-
-  ipcMain.handle('tor:testConnection', async (event, config) => {
-    const socksPort = config?.socksPort || 9050;
-    const controlPort = config?.controlPort || 9051;
-
-    return new Promise((resolve) => {
-      // Test SOCKS port
-      const socksSocket = new net.Socket();
-      let socksConnected = false;
-
-      socksSocket.setTimeout(3000);
-
-      socksSocket.on('connect', () => {
-        socksConnected = true;
-        socksSocket.destroy();
-
-        // SOCKS port is open, now test if it's actually Tor
-        // by trying to connect through it
-        resolve({
-          success: true,
-          port: socksPort,
-          message: `Tor SOCKS proxy is running on port ${socksPort}`,
-        });
-      });
-
-      socksSocket.on('error', (err) => {
-        resolve({
-          success: false,
-          port: socksPort,
-          error: `Cannot connect to Tor SOCKS proxy on port ${socksPort}. Is Tor running?`,
-        });
-      });
-
-      socksSocket.on('timeout', () => {
-        socksSocket.destroy();
-        resolve({
-          success: false,
-          port: socksPort,
-          error: `Connection timeout on port ${socksPort}`,
-        });
-      });
-
-      socksSocket.connect(socksPort, '127.0.0.1');
     });
   });
 }

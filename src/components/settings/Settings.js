@@ -1,4 +1,5 @@
 import { icons } from '../../js/icons.js';
+import { getRestUrl, getZmqAddress, makeRPCCall, copyToText, wirePasswordToggle } from '../../js/coinswapHelpers.js';
 
 export function SettingsComponent(container) {
   const content = document.createElement('div');
@@ -138,11 +139,11 @@ export function SettingsComponent(container) {
               <div class="settings-password">
                 <input type="password" id="tor-auth-password-input" placeholder="Optional" />
                 <button type="button" id="toggle-tor-password" class="settings-eye-btn" aria-label="Toggle password visibility">
-                  <svg id="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg data-eye="show" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                     <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                   </svg>
-                  <svg id="eye-slash-icon" style="display:none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg data-eye="hide" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
                   </svg>
                 </button>
@@ -163,16 +164,13 @@ export function SettingsComponent(container) {
 
   // FUNCTIONS
 
-  function getRpcUrl(host, port) {
-    return `http://${host}:${port}`;
-  }
-
-  function getRestUrl(host, port) {
-    return `${getRpcUrl(host, port)}/rest/chaininfo.json`;
-  }
-
-  function getZmqAddress(port) {
-    return `tcp://127.0.0.1:${port}`;
+  function getRpcConfigFromInputs() {
+    return {
+      host: content.querySelector('#rpc-host-input').value,
+      port: content.querySelector('#rpc-port-input').value,
+      username: content.querySelector('#rpc-username-input').value,
+      password: content.querySelector('#rpc-password-input').value,
+    };
   }
 
   function extractPortFromAddress(address, fallback = '28332') {
@@ -326,15 +324,11 @@ export function SettingsComponent(container) {
   content.querySelector('#copy-zmq-config-btn').addEventListener('click', async () => {
     const zmqPort = content.querySelector('#zmq-port-input').value || '28332';
     const configText = `zmqpubrawblock=${getZmqAddress(zmqPort)}\nzmqpubrawtx=${getZmqAddress(zmqPort)}`;
-    try {
-      await navigator.clipboard.writeText(configText);
-      const btn = content.querySelector('#copy-zmq-config-btn');
-      const orig = btn.innerHTML;
-      btn.innerHTML = icons.check(13) + ' Copied!';
-      setTimeout(() => { btn.innerHTML = orig; }, 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
+    if (!(await copyToText(configText))) return;
+    const btn = content.querySelector('#copy-zmq-config-btn');
+    const orig = btn.innerHTML;
+    btn.innerHTML = icons.check(13) + ' Copied!';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
   });
 
   // Bitcoin guide link (Electron-aware)
@@ -353,21 +347,10 @@ export function SettingsComponent(container) {
     window.open(url, '_blank');
   });
 
-  // Tor password toggle
-  content.querySelector('#toggle-tor-password').addEventListener('click', () => {
-    const passwordInput = content.querySelector('#tor-auth-password-input');
-    const eyeIcon = content.querySelector('#eye-icon');
-    const eyeSlashIcon = content.querySelector('#eye-slash-icon');
-    if (passwordInput.type === 'password') {
-      passwordInput.type = 'text';
-      eyeIcon.style.display = 'none';
-      eyeSlashIcon.style.display = '';
-    } else {
-      passwordInput.type = 'password';
-      eyeIcon.style.display = '';
-      eyeSlashIcon.style.display = 'none';
-    }
-  });
+  wirePasswordToggle(
+    content.querySelector('#tor-auth-password-input'),
+    content.querySelector('#toggle-tor-password')
+  );
 
   function updateConnectionStatus(connected, info = {}) {
     const indicator = content.querySelector('#connection-indicator');
@@ -393,34 +376,6 @@ export function SettingsComponent(container) {
       content.querySelector('#block-height').textContent = '--';
       content.querySelector('#sync-progress').textContent = '--';
     }
-  }
-
-  async function makeRPCCall(method, params = []) {
-    const host = content.querySelector('#rpc-host-input').value;
-    const port = content.querySelector('#rpc-port-input').value;
-    const username = content.querySelector('#rpc-username-input').value;
-    const password = content.querySelector('#rpc-password-input').value;
-
-    if (!username || !password) throw new Error('RPC username and password are required');
-
-    const response = await fetch(getRpcUrl(host, port), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${btoa(`${username}:${password}`)}`,
-      },
-      body: JSON.stringify({ jsonrpc: '1.0', id: Date.now(), method, params }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) throw new Error('Authentication failed - check RPC username/password');
-      if (response.status === 404) throw new Error('Bitcoin Core RPC not found - is bitcoind running?');
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    if (data.error) throw new Error(`RPC Error: ${data.error.message}`);
-    return data.result;
   }
 
   async function testTorConnection() {
@@ -473,9 +428,10 @@ export function SettingsComponent(container) {
     const zmqPort = parseInt(content.querySelector('#zmq-port-input').value, 10);
 
     try {
+      const rpcConfig = getRpcConfigFromInputs();
       const [blockchainInfo, networkInfo, restResponse, zmqResult] = await Promise.allSettled([
-        makeRPCCall('getblockchaininfo'),
-        makeRPCCall('getnetworkinfo'),
+        makeRPCCall(rpcConfig, 'getblockchaininfo'),
+        makeRPCCall(rpcConfig, 'getnetworkinfo'),
         fetch(getRestUrl(host, port)),
         window.api.testTcpPort({ host: '127.0.0.1', port: zmqPort }),
       ]);
@@ -612,8 +568,9 @@ export function SettingsComponent(container) {
 
   (async function checkInitialStatus() {
     try {
-      const info = await makeRPCCall('getblockchaininfo');
-      const networkInfo = await makeRPCCall('getnetworkinfo');
+      const rpcConfig = getRpcConfigFromInputs();
+      const info = await makeRPCCall(rpcConfig, 'getblockchaininfo');
+      const networkInfo = await makeRPCCall(rpcConfig, 'getnetworkinfo');
       updateConnectionStatus(true, {
         version: networkInfo.subversion || 'Unknown',
         network: info.chain,

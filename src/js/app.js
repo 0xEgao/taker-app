@@ -13,9 +13,9 @@ import { FirstTimeSetupModal } from '../components/settings/FirstTimeSetup.js';
 import { SwapStateManager } from '../components/swap/SwapStateManager.js';
 import { ConnectionStatusComponent } from '../components/connection/ConnectionStatus.js';
 import { bitcoindConnection } from '../components/connection/BitcoindConnection.js';
+import { showToast } from './coinswapHelpers.js';
 import { TakerInitializationComponent } from '../components/taker/TakerInitialization.js';
 import { refreshBtcPriceUsd } from './price.js';
-import { icons } from './icons.js';
 
 // Component map
 const components = {
@@ -31,7 +31,10 @@ const components = {
   about: AboutComponent,
 };
 
-// Background swap manager - runs independently of UI components
+// Background swap manager - runs independently of UI components.
+// This is the single canonical 1s active-swap poller; other components
+// (e.g. Nav.js) listen for its 'swap-state-tick' event instead of polling
+// SwapStateManager themselves.
 let backgroundSwapManager = null;
 
 async function startBackgroundSwapManager() {
@@ -44,6 +47,9 @@ async function startBackgroundSwapManager() {
 
   backgroundSwapManager = setInterval(async () => {
     const activeSwap = await SwapStateManager.getActiveSwap();
+    window.dispatchEvent(
+      new CustomEvent('swap-state-tick', { detail: { activeSwap } })
+    );
     if (!activeSwap) {
       stopBackgroundSwapManager();
       return;
@@ -165,199 +171,16 @@ function startTakerInitWithConfig(config) {
       console.log('⏭️ Taker initialization skipped');
     } else {
       console.log('✅ Taker initialized');
-      startBackgroundOfferbookSync();
+      // Fire-and-forget: Market.js's sync monitor picks this up whenever the
+      // user visits the Market page, whether it's still running or already done.
+      window.api.taker.syncOfferbookAndWait().then((result) => {
+        if (!result.success) {
+          console.warn('⚠️ Background offerbook sync failed to start:', result.error);
+        }
+      });
     }
     startMainApp();
   });
-}
-
-async function showPasswordPrompt(config) {
-  // Extract wallet name for display
-  const walletName =
-    config.wallet?.name || config.wallet?.fileName || 'taker-wallet';
-
-  const modal = document.createElement('div');
-  modal.className =
-    'fixed inset-0 bg-black/70 flex items-center justify-center z-50';
-  modal.innerHTML = `
-    <div class="bg-surface rounded-lg p-6 max-w-md w-full mx-4">
-      <h3 class="text-xl font-bold text-white mb-4">🔐 Wallet Password Required</h3>
-      <p class="text-gray-400 text-sm mb-4">
-        Your wallet "<span class="font-mono text-primary">${walletName}</span>" is encrypted. 
-        Please enter your password to unlock it.
-      </p>
-      
-      <div class="relative mb-4">
-        <input 
-          type="password" 
-          id="wallet-password-input"
-          placeholder="Enter wallet password"
-          class="w-full bg-app-bg border border-gray-600 rounded-lg px-4 py-3 pr-12 text-white focus:outline-none focus:border-primary"
-        />
-        <button
-          type="button"
-          id="toggle-wallet-password"
-          class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-          aria-label="Show password"
-          title="Show password"
-        >
-          <span class="password-show-icon">${icons.eye(18)}</span>
-          <span class="password-hide-icon hidden">${icons.eyeOff(18)}</span>
-        </button>
-      </div>
-      
-      <div id="password-error" class="hidden app-infobox danger rounded p-3 mb-4">
-        <p class="text-sm"></p>
-      </div>
-      
-      <div class="flex gap-3">
-        <button id="cancel-password-btn" class="flex-1 bg-secondary hover:bg-secondary-hover text-white py-3 rounded-lg">
-          Cancel
-        </button>
-        <button id="submit-password-btn" class="flex-1 bg-primary hover:bg-primary-hover text-white font-bold py-3 rounded-lg">
-          Unlock Wallet
-        </button>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-
-  const passwordInput = modal.querySelector('#wallet-password-input');
-  const submitBtn = modal.querySelector('#submit-password-btn');
-  const cancelBtn = modal.querySelector('#cancel-password-btn');
-  const togglePasswordBtn = modal.querySelector('#toggle-wallet-password');
-  const errorDiv = modal.querySelector('#password-error');
-
-  passwordInput.focus();
-
-  return new Promise((resolve) => {
-    async function tryPassword() {
-      const password = passwordInput.value;
-
-      if (!password) {
-        errorDiv.classList.remove('hidden');
-        errorDiv.querySelector('p').textContent = 'Please enter a password';
-        return;
-      }
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Unlocking...';
-
-      try {
-        // Add password to config
-        const configWithPassword = {
-          ...config,
-          wallet: {
-            ...config.wallet,
-            password: password,
-          },
-        };
-
-        const result = await window.api.taker.initialize(configWithPassword);
-
-        if (result.success) {
-          modal.remove();
-          resolve(true);
-          startMainApp();
-          startBackgroundOfferbookSync();
-        } else if (result.wrongPassword) {
-          errorDiv.classList.remove('hidden');
-          errorDiv.querySelector('p').textContent =
-            'Incorrect password. Please try again.';
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Unlock Wallet';
-          passwordInput.value = '';
-          passwordInput.focus();
-        } else {
-          throw new Error(result.error || 'Initialization failed');
-        }
-      } catch (error) {
-        console.error('Password verification failed:', error);
-        errorDiv.classList.remove('hidden');
-        errorDiv.querySelector('p').textContent =
-          'Failed to unlock: ' + error.message;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Unlock Wallet';
-      }
-    }
-
-    submitBtn.addEventListener('click', tryPassword);
-    passwordInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') tryPassword();
-    });
-
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
-      resolve(false);
-    });
-
-    togglePasswordBtn.addEventListener('click', () => {
-      const isHidden = passwordInput.type === 'password';
-      passwordInput.type = isHidden ? 'text' : 'password';
-      togglePasswordBtn
-        .querySelector('.password-show-icon')
-        ?.classList.toggle('hidden', isHidden);
-      togglePasswordBtn
-        .querySelector('.password-hide-icon')
-        ?.classList.toggle('hidden', !isHidden);
-
-      const label = isHidden ? 'Hide password' : 'Show password';
-      togglePasswordBtn.setAttribute('aria-label', label);
-      togglePasswordBtn.setAttribute('title', label);
-      passwordInput.focus();
-    });
-  });
-}
-
-let offerbookSyncPromise = null;
-
-async function startBackgroundOfferbookSync() {
-  if (offerbookSyncPromise) return offerbookSyncPromise;
-
-  offerbookSyncPromise = runBackgroundOfferbookSync().finally(() => {
-    offerbookSyncPromise = null;
-  });
-
-  return offerbookSyncPromise;
-}
-
-async function runBackgroundOfferbookSync() {
-  try {
-    console.log('🔄 Starting background offerbook sync...');
-    const syncResult = await window.api.taker.syncOfferbookAndWait();
-    if (!syncResult.success) {
-      console.warn(
-        '⚠️ Background offerbook sync failed to start:',
-        syncResult.error
-      );
-      return;
-    }
-    const syncId = syncResult.syncId;
-    await new Promise((resolve) => {
-      const poll = setInterval(async () => {
-        try {
-          const status = await window.api.taker.getSyncStatus(syncId);
-          const syncStatus = (status.sync || {}).status || 'syncing';
-          if (
-            !status.success ||
-            syncStatus === 'completed' ||
-            syncStatus === 'failed'
-          ) {
-            clearInterval(poll);
-            resolve();
-          }
-        } catch (err) {
-          console.warn('⚠️ Sync poll error:', err.message);
-          clearInterval(poll);
-          resolve();
-        }
-      }, 1000);
-    });
-    console.log('✅ Background offerbook sync complete');
-  } catch (err) {
-    console.warn('⚠️ Background offerbook sync error:', err.message);
-  }
 }
 
 // Start the main app after bitcoind connection is established
@@ -444,20 +267,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function showSetupSuccess() {
-  const successDiv = document.createElement('div');
-  successDiv.className = 'app-toast top transition-opacity duration-300';
-  successDiv.innerHTML = `
-      <div class="flex items-center">
+  showToast(
+    `<div class="flex items-center">
         <span class="mr-2">✔</span>
         <span>Setup completed successfully!</span>
-      </div>
-    `;
-  document.body.appendChild(successDiv);
-
-  setTimeout(() => {
-    successDiv.style.opacity = '0';
-    setTimeout(() => successDiv.remove(), 300);
-  }, 3000);
+      </div>`,
+    { className: 'app-toast top transition-opacity duration-300', duration: 3000, html: true }
+  );
 }
 
 // Export functions for components to use

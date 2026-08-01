@@ -1,4 +1,5 @@
 import { icons } from '../../js/icons.js';
+import { escapeHtml } from '../../js/coinswapHelpers.js';
 
 export function LogComponent(container) {
   const content = document.createElement('div');
@@ -73,12 +74,6 @@ export function LogComponent(container) {
 
   function getTypeLabel(type) {
     return type.toUpperCase();
-  }
-
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
   }
 
   function renderLogs() {

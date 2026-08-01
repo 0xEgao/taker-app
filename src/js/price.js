@@ -45,10 +45,6 @@ export function getBtcPriceUsd() {
   return btcPriceUsd;
 }
 
-export function hasBtcPriceUsd() {
-  return Number.isFinite(btcPriceUsd) && btcPriceUsd > 0;
-}
-
 export async function refreshBtcPriceUsd({ force = false } = {}) {
   if (!force) {
     const cachedPrice = loadCachedPrice();
@@ -78,9 +74,6 @@ export async function refreshBtcPriceUsd({ force = false } = {}) {
 
       btcPriceUsd = usd;
       saveCachedPrice(usd);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('btc-price-updated', { detail: { usd } }));
-      }
       return btcPriceUsd;
     })
     .catch((error) => {

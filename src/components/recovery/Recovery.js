@@ -1,14 +1,6 @@
 import { icons } from '../../js/icons.js';
 import { formatSats, SATS_SYMBOL } from '../../js/price.js';
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { escapeHtml } from '../../js/coinswapHelpers.js';
 
 function compactTxid(txid = '') {
   const text = String(txid || '');

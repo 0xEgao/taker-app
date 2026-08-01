@@ -1,3 +1,5 @@
+import { makeRPCCall } from '../../js/coinswapHelpers.js';
+
 /**
  * Bitcoin Core RPC Connection Manager
  * Handles connection to bitcoind and manages connection state
@@ -33,54 +35,7 @@ export class BitcoindConnection {
         }
 
         const { host = '127.0.0.1', port = 38332, username, password } = this.config.rpc;
-        
-        if (!username || !password) {
-            throw new Error('RPC username and password are required');
-        }
-
-        const url = `http://${host}:${port}`;
-        const auth = btoa(`${username}:${password}`);
-        
-        const body = {
-            jsonrpc: "1.0",
-            id: Date.now(),
-            method: method,
-            params: params
-        };
-
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Basic ${auth}`
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    throw new Error('Authentication failed - check RPC username/password');
-                } else if (response.status === 404) {
-                    throw new Error('Bitcoin Core RPC not found - is bitcoind running?');
-                } else {
-                    throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
-                }
-            }
-
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(`RPC error: ${data.error.message}`);
-            }
-
-            return data.result;
-        } catch (error) {
-            if (error instanceof TypeError && error.message.includes('fetch')) {
-                throw new Error('Cannot connect to Bitcoin Core - make sure bitcoind is running and accessible');
-            }
-            throw error;
-        }
+        return makeRPCCall({ host, port, username, password }, method, params);
     }
 
     async testConnection() {
@@ -166,41 +121,6 @@ export class BitcoindConnection {
         }
     }
 
-    async getBalance() {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('getbalance');
-    }
-
-    async getNewAddress(label = '', type = 'bech32') {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('getnewaddress', [label, type]);
-    }
-
-    async getTransactions(count = 10) {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('listtransactions', ['*', count]);
-    }
-
-    async sendToAddress(address, amount, comment = '', commentTo = '') {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('sendtoaddress', [address, amount, comment, commentTo]);
-    }
-
-    async getBlockchainInfo() {
-        if (!this.isConnected) {
-            throw new Error('Not connected to Bitcoin Core');
-        }
-        return await this.makeRPCCall('getblockchaininfo');
-    }
-
     disconnect() {
         this.isConnected = false;
         this.retryAttempts = 0;
@@ -216,12 +136,3 @@ export class BitcoindConnection {
 
 // Global connection instance
 export const bitcoindConnection = new BitcoindConnection();
-
-// Utility functions
-export async function ensureBitcoindConnection() {
-    return await bitcoindConnection.connect();
-}
-
-export function getBitcoindConnection() {
-    return bitcoindConnection;
-}

@@ -1,6 +1,18 @@
 import { icons } from '../../js/icons.js';
 import { SwapStateManager } from './SwapStateManager.js';
-import { getBtcPriceUsd, formatSats, SATS_SYMBOL } from '../../js/price.js';
+import { getBtcPriceUsd, SATS_SYMBOL } from '../../js/price.js';
+import {
+  estimateMakerFee,
+  toProtocolVersionValue,
+  escapeHtml,
+  getUtxoKind,
+  getUtxoKindLabel,
+  formatTorEndpoint,
+  hasUsdPrice as sharedHasUsdPrice,
+  getAmountUnitLabel as sharedGetAmountUnitLabel,
+  getAmountConversionLabels as sharedGetAmountConversionLabels,
+  sumSelectedUtxos,
+} from '../../js/coinswapHelpers.js';
 
 // ✅ ADD CACHE CONSTANTS
 const SWAP_DATA_CACHE_KEY = 'swap_data_cache';
@@ -43,25 +55,6 @@ function saveSwapDataToCache(utxos, balance) {
   } catch (err) {
     console.error('Failed to save swap data cache:', err);
   }
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function formatTorEndpoint(address, start = 14, end = 16) {
-  if (!address || typeof address !== 'string') return 'unknown';
-
-  const separatorIndex = address.lastIndexOf(':');
-  const host = separatorIndex !== -1 ? address.slice(0, separatorIndex) : address;
-
-  if (host.length <= start + end + 3) return host;
-  return `${host.slice(0, start)}...${host.slice(-end)}`;
 }
 
 export async function SwapComponent(container) {
@@ -141,37 +134,11 @@ export async function SwapComponent(container) {
   let balancesLoaded = false;
 
   function getAmountUnitLabel(unit = amountUnit) {
-    if (unit === 'sats') return SATS_SYMBOL;
-    return unit.toUpperCase();
+    return sharedGetAmountUnitLabel(unit);
   }
 
   function getAmountConversionLabels(amountSats, selectedUnit = amountUnit) {
-    const labels = [];
-    const btcAmount = amountSats / 100000000;
-
-    if (selectedUnit !== 'sats') {
-      labels.push(`= ${Math.round(amountSats || 0).toLocaleString()} ${SATS_SYMBOL}`);
-    }
-    if (selectedUnit !== 'btc') {
-      labels.push(`= ${btcAmount.toFixed(8)} BTC`);
-    }
-    if (selectedUnit !== 'usd' && hasUsdPrice()) {
-      labels.push(`$${(btcAmount * btcPrice).toFixed(2)} USD`);
-    } else if (selectedUnit !== 'usd') {
-      labels.push('USD price unavailable');
-    }
-
-    return labels;
-  }
-
-  function getUtxoKind(utxo) {
-    return String(utxo?.type || '').toLowerCase().includes('swap')
-      ? 'swap'
-      : 'regular';
-  }
-
-  function getUtxoKindLabel(utxo) {
-    return getUtxoKind(utxo) === 'swap' ? 'Swap' : 'Regular';
+    return sharedGetAmountConversionLabels(amountSats, selectedUnit, btcPrice);
   }
 
   function getSelectedUtxoKinds() {
@@ -185,10 +152,6 @@ export async function SwapComponent(container) {
 
   function hasMixedSelectedUtxos() {
     return getSelectedUtxoKinds().size > 1;
-  }
-
-  function normalizeProtocolValue(protocol) {
-    return protocol === 'v1' || protocol === 'Legacy' ? 'v1' : 'v2';
   }
 
   try {
@@ -212,8 +175,9 @@ export async function SwapComponent(container) {
     utxoFilter = savedSelections.utxoFilter || 'regular';
     makerSelectionMode = savedSelections.makerSelectionMode || 'auto';
     selectedMakerAddresses = savedSelections.selectedMakerAddresses || [];
-    currentProtocol = normalizeProtocolValue(
-      savedSelections.protocol || savedSelections.currentProtocol || currentProtocol
+    currentProtocol = toProtocolVersionValue(
+      savedSelections.protocol || savedSelections.currentProtocol || currentProtocol,
+      true
     );
     useCustomHops = savedSelections.useCustomHops || false;
     customHopCount = savedSelections.customHopCount || 6;
@@ -231,7 +195,7 @@ export async function SwapComponent(container) {
   const btcPrice = getBtcPriceUsd();
 
   function hasUsdPrice() {
-    return Number.isFinite(Number(btcPrice)) && Number(btcPrice) > 0;
+    return sharedHasUsdPrice(btcPrice);
   }
 
   function getMakerProtocol(makerOrItem, offer = makerOrItem?.offer) {
@@ -492,7 +456,7 @@ export async function SwapComponent(container) {
         return `
         <label class="swap-pick-row">
           <input type="checkbox" id="maker-addr-${index}" />
-          <span class="swap-row-id">${escapeHtml(formatTorEndpoint(maker.address, 8, 13))}</span>
+          <span class="swap-row-id">${escapeHtml(formatTorEndpoint(maker.address, { start: 8, end: 13, ellipsis: '...' }))}</span>
           <span class="swap-maker-fee">Fee ${escapeHtml(maker.volumeFeePct.toFixed(3))}</span>
           <strong>${escapeHtml(((maker.maxSize || 0) / 100000000).toFixed(3))}<small>BOND</small></strong>
         </label>
@@ -558,11 +522,7 @@ export async function SwapComponent(container) {
   }
 
   function getSelectedUtxosTotal() {
-    if (selectedUtxos.length === 0 || availableUtxos.length === 0) return 0;
-    return selectedUtxos.reduce((sum, index) => {
-      const utxo = availableUtxos[index];
-      return sum + (utxo ? utxo.amount : 0);
-    }, 0);
+    return sumSelectedUtxos(selectedUtxos, availableUtxos);
   }
 
   function getTopCandidateMakers() {
@@ -582,17 +542,6 @@ export async function SwapComponent(container) {
     return `${mins}m ${secs}s`;
   }
 
-  function renderMakerCandidates(addresses) {
-    if (!addresses.length) return 'None selected';
-
-    return addresses
-      .map((address) => {
-        const displayAddress = formatTorEndpoint(address, 10, 11);
-        return `<span title="${escapeHtml(address)}">${escapeHtml(displayAddress)}</span>`;
-      })
-      .join('');
-  }
-
   // Estimate fees from the top candidate makers shown in the UI.
   function calculateFees(amount) {
     const hops = getNumberOfHops();
@@ -602,12 +551,15 @@ export async function SwapComponent(container) {
     const fundingTxs = hops;
     const networkFee = fundingTxs * avgFundingTxSize * networkFeeRate;
     const makerFee = topCandidateMakers.reduce((sum, maker, index) => {
-      const makerPosition = index + 1;
-      const refundLocktime = 20 * (totalMakers - makerPosition + 1);
-      const volumeFee = amount * ((maker.volumeFeePct || 0) / 100);
-      const timeFee =
-        refundLocktime * amount * ((maker.timeFeePct || 0) / 100);
-      return sum + (maker.baseFee || 0) + volumeFee + timeFee;
+      const estimate = estimateMakerFee({
+        baseFee: maker.baseFee || 0,
+        amountRelativeFeePct: maker.volumeFeePct || 0,
+        timeRelativeFeePct: maker.timeFeePct || 0,
+        amountSats: amount,
+        makerPosition: index + 1,
+        totalMakers,
+      });
+      return sum + estimate.totalFee;
     }, 0);
     const totalFee = makerFee + networkFee;
 
@@ -982,7 +934,7 @@ export async function SwapComponent(container) {
   }
 
   async function setSwapProtocol(protocol) {
-    currentProtocol = normalizeProtocolValue(protocol);
+    currentProtocol = toProtocolVersionValue(protocol);
 
     content.querySelectorAll('.protocol-btn').forEach((btn) => {
       btn.classList.toggle('is-active', btn.id === 'protocol-' + currentProtocol);

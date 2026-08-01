@@ -1,5 +1,6 @@
 import { icons } from '../../js/icons.js';
 import { SATS_SYMBOL } from '../../js/price.js';
+import { explorerTxUrl, normalizeSwapProtocol, escapeHtml, formatDuration, copyToText, truncateMiddle, formatTorEndpoint, showToast } from '../../js/coinswapHelpers.js';
 
 function satsToBtc(sats) {
   const normalized = Number(sats || 0);
@@ -10,21 +11,6 @@ function satsToBtc(sats) {
 
 export function SwapReportComponent(container, swapReport, options = {}) {
   const trackerInfo = options.trackerInfo || null;
-  function normalizeProtocol(value, fallbackIsTaproot = false) {
-    switch (value) {
-      case 'v2':
-      case 'Taproot':
-        return 'Taproot';
-      case 'Unified':
-        return 'Unified';
-      case 'v1':
-      case 'Legacy':
-      case 'Legacy P2WSH':
-        return 'Legacy';
-      default:
-        return fallbackIsTaproot ? 'Taproot' : 'Legacy';
-    }
-  }
 
   console.log('📊 SwapReportComponent loading with report:', swapReport);
   console.log('📊 Report keys:', Object.keys(swapReport || {}));
@@ -184,7 +170,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     normalizedTargetAmount > 0 ? (rawTotalFee / normalizedTargetAmount) * 100 : 0
   );
 
-  const protocol = normalizeProtocol(
+  const protocol = normalizeSwapProtocol(
     swapReport.protocol || nestedReport.protocol,
     swapReport.isTaproot || nestedReport.isTaproot || false
   );
@@ -370,25 +356,9 @@ export function SwapReportComponent(container, swapReport, options = {}) {
   console.log('📊 Normalized report:', report);
 
   // Helper functions
-  function formatDuration(seconds) {
-    if (typeof seconds !== 'number' || isNaN(seconds)) return '0m 0s';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}m ${secs}s`;
-  }
-
   function formatNumber(num) {
     if (typeof num !== 'number' || isNaN(num)) return '0';
     return num.toLocaleString();
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
   }
 
   function getFirstField(source, keys, fallback = null) {
@@ -499,31 +469,8 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     const vout = getFirstField(utxo, ['vout', 'index', 'output_index']);
     if (type) parts.push(String(type));
     if (vout != null) parts.push(`vout ${vout}`);
-    if (address) parts.push(truncateAddress(String(address), 10, 8));
+    if (address) parts.push(truncateMiddle(String(address), { start: 10, end: 8, ellipsis: '...' }));
     return parts.join(' · ');
-  }
-
-  function buildUtxoRowsHtml(utxos, emptyText, groupLabel = 'Report entry') {
-    if (!utxos.length) {
-      return emptyText ? `<p class="swap-report-empty">${emptyText}</p>` : '';
-    }
-
-    return utxos
-      .map((utxo, index) => {
-        const title = getUtxoTitle(utxo, `${groupLabel} ${index + 1}`, groupLabel);
-        const amount = getUtxoAmount(utxo);
-        const meta = getUtxoMeta(utxo);
-        return `
-          <div class="swap-report-utxo-row">
-            <div>
-              <strong>${escapeHtml(title)}</strong>
-              ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
-            </div>
-            ${Number.isFinite(amount) ? `<em>${formatNumber(amount)} ${SATS_SYMBOL}</em>` : ''}
-          </div>
-        `;
-      })
-      .join('');
   }
 
   function getMakerFeeParts(makerIndex) {
@@ -598,31 +545,6 @@ export function SwapReportComponent(container, swapReport, options = {}) {
       report.targetAmount > 0 ? (report.totalFee / report.targetAmount) * 100 : 0;
   }
 
-  function truncateAddress(addr, start = 14, end = 16) {
-    if (!addr || typeof addr !== 'string') return 'unknown';
-
-    const separatorIndex = addr.lastIndexOf(':');
-    if (separatorIndex === -1) {
-      if (addr.length <= start + end) return addr;
-      return `${addr.substring(0, start)}...${addr.substring(addr.length - end)}`;
-    }
-
-    const host = addr.substring(0, separatorIndex);
-    const port = addr.substring(separatorIndex + 1);
-
-    if (host.length <= start + end + 3) {
-      return `${host}:${port}`;
-    }
-
-    return `${host.substring(0, start)}...${host.substring(host.length - end)}:${port}`;
-  }
-
-  function truncateTxid(txid, start = 20, end = 12) {
-    if (!txid || typeof txid !== 'string') return 'unknown';
-    if (txid.length <= start + end) return txid;
-    return `${txid.substring(0, start)}...${txid.substring(txid.length - end)}`;
-  }
-
   function getOutputAddress(output) {
     if (Array.isArray(output)) {
       return output.find((entry) => typeof entry === 'string' && entry.trim()) || '';
@@ -683,23 +605,16 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     `;
   }
 
-  function copyToClipboard(text) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        showNotification('Copied to clipboard!');
-      })
-      .catch((err) => {
-        console.error('Copy failed:', err);
-      });
+  async function copyToClipboard(text) {
+    if (await copyToText(text)) {
+      showNotification('Copied to clipboard!');
+    } else {
+      showNotification('Copy failed');
+    }
   }
 
   function showNotification(message) {
-    const notification = document.createElement('div');
-    notification.className = 'app-toast top';
-    notification.textContent = message;
-    document.body.appendChild(notification);
-    setTimeout(() => notification.remove(), 2000);
+    showToast(message, { className: 'app-toast top', duration: 2000, fade: true });
   }
 
   // Show maker popup
@@ -853,10 +768,6 @@ export function SwapReportComponent(container, swapReport, options = {}) {
   }
 
   const makerColors = ['#518def', '#3B82F6', '#A855F7', '#06B6D4', '#10B981'];
-  const makeReportEntry = (reportLabel, reportEntry) => ({
-    reportLabel,
-    reportEntry,
-  });
   const transactionArtifacts = [
     ...(report.outgoingContractTxid
       ? [
@@ -968,7 +879,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
         <div class="maker-card-wrap">
           <button class="maker-card swap-report-maker-row" data-maker-index="${idx}">
             <span>Maker ${String(idx + 1).padStart(2, '0')}</span>
-            <strong>${truncateAddress(addr, 20, 18)}</strong>
+            <strong>${escapeHtml(formatTorEndpoint(addr, { start: 20, end: 18, ellipsis: '...', keepPort: true }))}</strong>
             <em>View ${icons.externalLink(12)}</em>
           </button>
           ${isFailedReport && progress ? buildHandshakeHtml(progress) : ''}
@@ -991,7 +902,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
             <button class="maker-fee-row" data-maker-index="${idx}" type="button">
               <span>Maker ${idx + 1}</span>
               <strong>${getMakerFeeDisplay(idx)}</strong>
-              <em>${escapeHtml(truncateAddress(addr, 10, 8))}</em>
+              <em>${escapeHtml(formatTorEndpoint(addr, { start: 10, end: 8, ellipsis: '...', keepPort: true }))}</em>
             </button>
           `;
         }).join('')}
@@ -1004,18 +915,12 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     return new Date(ts * 1000).toLocaleString();
   }
 
-  function truncateHex(hex, start = 12, end = 8) {
-    if (!hex || typeof hex !== 'string') return hex || '—';
-    if (hex.length <= start + end + 3) return hex;
-    return `${hex.slice(0, start)}…${hex.slice(-end)}`;
-  }
-
   function hexRow(label, value) {
     if (!value) return '';
     // ECDSA signatures serialize as { signature: hex, sighash_type: ... }
     if (value && typeof value === 'object' && value.signature) value = value.signature;
     if (typeof value !== 'string') value = JSON.stringify(value);
-    const display = truncateHex(value);
+    const display = truncateMiddle(value, { start: 12, end: 8 });
     return `
       <div class="dp-row">
         <span class="dp-label">${label}</span>
@@ -1030,7 +935,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     const parts = typeof outpoint === 'string' ? outpoint.split(':') : [];
     const txid = parts.length >= 2 ? parts.slice(0, -1).join(':') : String(outpoint);
     const vout = parts.length >= 2 ? parts[parts.length - 1] : '';
-    const display = truncateHex(txid) + (vout !== '' ? `:${vout}` : '');
+    const display = truncateMiddle(txid, { start: 12, end: 8 }) + (vout !== '' ? `:${vout}` : '');
     return `
       <div class="dp-row">
         <span class="dp-label">${label}</span>
@@ -1121,314 +1026,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
     return lines.join('');
   }
 
-  function getReportInfoLines() {
-    return `
-      <div>
-        <p class="mb-1"><strong>Rendering Mode:</strong> This report is built from whichever fields are actually present in the saved JSON.</p>
-        <p><strong>Artifacts:</strong> Contract, funding, recovery, and sweep transaction IDs are shown whenever the backend included them.</p>
-      </div>
-      <div>
-        <p class="mb-1"><strong>Makers Recorded:</strong> ${report.makersCount || report.makerAddresses.length}</p>
-        <p><strong>Protocol Metadata:</strong> ${report.protocol || 'Not explicitly included in this report file.'}</p>
-      </div>
-    `;
-  }
-
-  // Build swap circuit visualization (circular SVG)
-  function buildCircularFlowHtml() {
-    const isFinitePoint = (point) =>
-      point &&
-      Number.isFinite(point.x) &&
-      Number.isFinite(point.y);
-
-    const makersCount = Number(report.makersCount);
-    const actualMakers = Math.max(
-      0,
-      Number.isFinite(makersCount) && makersCount > 0
-        ? makersCount
-        : report.makerAddresses.length
-    );
-    const totalNodes = actualMakers + 1; // +1 for You
-
-    // Dynamic node sizing
-    const youHalf = actualMakers <= 5 ? 38 : actualMakers <= 10 ? 30 : 22;
-    const makerHalf = actualMakers <= 5 ? 32 : actualMakers <= 10 ? 25 : 18;
-    const youFont = actualMakers <= 5 ? 22 : actualMakers <= 10 ? 16 : 13;
-    const makerFont = actualMakers <= 5 ? 20 : actualMakers <= 10 ? 14 : 10;
-    const youRx = actualMakers <= 5 ? 14 : 10;
-    const makerRx = actualMakers <= 5 ? 10 : 7;
-    const maxNodeHalf = Math.max(youHalf, makerHalf);
-    const labelPad = youHalf + 62;
-
-    function getRectPoint(distance, width, height) {
-      const halfW = width / 2;
-      const halfH = height / 2;
-      const top = width / 2;
-      const right = height;
-      const bottom = width;
-      const left = height;
-      const perimeter = top + right + bottom + left + top;
-      let remaining = ((distance % perimeter) + perimeter) % perimeter;
-
-      const linePoint = (x1, y1, x2, y2, travelled, segmentLength) => {
-        const ratio = segmentLength === 0 ? 0 : travelled / segmentLength;
-        return {
-          x: x1 + (x2 - x1) * ratio,
-          y: y1 + (y2 - y1) * ratio,
-        };
-      };
-
-      const segments = [
-        {
-          length: top,
-          point: (travelled) =>
-            linePoint(0, -halfH, halfW, -halfH, travelled, top),
-        },
-        {
-          length: right,
-          point: (travelled) =>
-            linePoint(halfW, -halfH, halfW, halfH, travelled, right),
-        },
-        {
-          length: bottom,
-          point: (travelled) =>
-            linePoint(halfW, halfH, -halfW, halfH, travelled, bottom),
-        },
-        {
-          length: left,
-          point: (travelled) =>
-            linePoint(-halfW, halfH, -halfW, -halfH, travelled, left),
-        },
-        {
-          length: top,
-          point: (travelled) =>
-            linePoint(-halfW, -halfH, 0, -halfH, travelled, top),
-        },
-      ];
-
-      for (const segment of segments) {
-        if (remaining <= segment.length) {
-          return segment.point(remaining);
-        }
-        remaining -= segment.length;
-      }
-
-      return { x: 0, y: -halfH };
-    }
-
-    function buildAdaptiveLayout() {
-      const gap = 14;
-
-      if (actualMakers <= 4) {
-        const minRadius =
-          (maxNodeHalf + gap) / Math.sin(Math.PI / totalNodes);
-        const radius = Math.max(minRadius, 140);
-        const svgSize = Math.round((radius + labelPad) * 2);
-        const centerX = svgSize / 2;
-        const centerY = svgSize / 2;
-        const angleStep = (2 * Math.PI) / totalNodes;
-        const positions = Array.from({ length: totalNodes }, (_, i) => {
-          const angle = angleStep * i - Math.PI / 2;
-          return {
-            x: centerX + radius * Math.cos(angle),
-            y: centerY + radius * Math.sin(angle),
-          };
-        });
-
-        return {
-          centerX,
-          centerY,
-          svgWidth: svgSize,
-          svgHeight: svgSize,
-          positions,
-          guideMarkup: `<circle cx="${centerX}" cy="${centerY}" r="${radius}"
-                  fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.6"/>`,
-        };
-      }
-
-      if (actualMakers <= 11) {
-        const safeSin = Math.max(Math.sin(Math.PI / totalNodes), 0.22);
-        const minRadius =
-          (maxNodeHalf + gap + Math.max(0, actualMakers - 5) * 2) / safeSin;
-        const rx = Math.max(minRadius * 1.15, 190 + actualMakers * 10);
-        const ry = Math.max(minRadius * 0.72, 120 + actualMakers * 5);
-        const svgWidth = Math.round(rx * 2 + labelPad * 2 + 30);
-        const svgHeight = Math.round(ry * 2 + labelPad * 2);
-        const centerX = svgWidth / 2;
-        const centerY = svgHeight / 2;
-        const angleStep = (2 * Math.PI) / totalNodes;
-        const positions = Array.from({ length: totalNodes }, (_, i) => {
-          const angle = angleStep * i - Math.PI / 2;
-          return {
-            x: centerX + rx * Math.cos(angle),
-            y: centerY + ry * Math.sin(angle),
-          };
-        });
-
-        return {
-          centerX,
-          centerY,
-          svgWidth,
-          svgHeight,
-          positions,
-          guideMarkup: `<ellipse cx="${centerX}" cy="${centerY}" rx="${rx}" ry="${ry}"
-                  fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.6"/>`,
-        };
-      }
-
-      const isSquareLayout = actualMakers <= 14;
-      const width = isSquareLayout
-        ? Math.max(420, 360 + actualMakers * 16)
-        : Math.max(640, 430 + actualMakers * 24);
-      const height = isSquareLayout
-        ? width
-        : Math.max(320, 250 + Math.min(actualMakers - 14, 8) * 18);
-      const halfW = width / 2;
-      const halfH = height / 2;
-      const perimeter = width * 2 + height * 2;
-      const svgWidth = Math.round(width + labelPad * 2);
-      const svgHeight = Math.round(height + labelPad * 2);
-      const centerX = svgWidth / 2;
-      const centerY = svgHeight / 2;
-      const step = perimeter / totalNodes;
-      const positions = Array.from({ length: totalNodes }, (_, i) => {
-        const point = getRectPoint(step * i, width, height);
-        return {
-          x: centerX + point.x,
-          y: centerY + point.y,
-        };
-      });
-
-      const x = centerX - halfW;
-      const y = centerY - halfH;
-      const guideMarkup = `<rect x="${x}" y="${y}" width="${width}" height="${height}"
-                fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="7 7" opacity="0.6"/>`;
-
-      return {
-        centerX,
-        centerY,
-        svgWidth,
-        svgHeight,
-        positions,
-        guideMarkup,
-      };
-    }
-
-    const { centerX, centerY, svgWidth, svgHeight, positions, guideMarkup } =
-      buildAdaptiveLayout();
-    const hasValidLayout =
-      Number.isFinite(centerX) &&
-      Number.isFinite(centerY) &&
-      Number.isFinite(svgWidth) &&
-      Number.isFinite(svgHeight) &&
-      Array.isArray(positions) &&
-      positions.length === totalNodes &&
-      positions.every(isFinitePoint);
-
-    if (!hasValidLayout) {
-      console.warn('⚠️ Invalid swap circuit layout, falling back to simple list', {
-        actualMakers,
-        totalNodes,
-        centerX,
-        centerY,
-        svgWidth,
-        svgHeight,
-        positions,
-      });
-
-      return `
-        <div class="bg-app-bg rounded-lg p-5 border border-gray-800">
-          <p class="text-gray-300 text-sm mb-3">Swap path visualization unavailable for this report.</p>
-          <div class="space-y-2">
-            <div class="text-[#10B981] font-semibold">You</div>
-            ${Array.from({ length: actualMakers }, (_, i) => {
-              const addr = report.makerAddresses[i] || `Maker ${i + 1}`;
-              const color = makerColors[i % makerColors.length];
-              return `<div class="font-mono text-xs" style="color: ${color};">Maker ${i + 1}: ${truncateAddress(addr)}</div>`;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="flex items-center justify-center overflow-auto">
-        <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" class="mx-auto max-w-full">
-          <defs>
-            ${Array.from({ length: totalNodes }, (_, i) => {
-              const color = i < actualMakers ? makerColors[i % makerColors.length] : '#10B981';
-              return `<marker id="r-arrow-${i}" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="${color}" opacity="0.9"/>
-              </marker>`;
-            }).join('')}
-            <filter id="r-glow-you" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="5" result="blur"/>
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-
-          <!-- Guide path -->
-          ${guideMarkup}
-
-          <!-- Arrows -->
-          ${positions.map((pos, i) => {
-            const nextPos = positions[(i + 1) % positions.length];
-            const color = i < actualMakers ? makerColors[i % makerColors.length] : '#10B981';
-            const fromHalf = i === 0 ? youHalf : makerHalf;
-            const toHalf = (i + 1) % positions.length === 0 ? youHalf : makerHalf;
-            if (!isFinitePoint(pos) || !isFinitePoint(nextPos)) return '';
-            const dx = nextPos.x - pos.x;
-            const dy = nextPos.y - pos.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            if (!Number.isFinite(len) || len <= 0) return '';
-            const sx = pos.x + (dx / len) * (fromHalf + 4);
-            const sy = pos.y + (dy / len) * (fromHalf + 4);
-            const ex = nextPos.x - (dx / len) * (toHalf + 10);
-            const ey = nextPos.y - (dy / len) * (toHalf + 10);
-            if (![sx, sy, ex, ey].every(Number.isFinite)) return '';
-            return `<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}"
-                          stroke="${color}" stroke-width="2" marker-end="url(#r-arrow-${i})" opacity="0.75"/>`;
-          }).join('')}
-
-          <!-- You node (completed — green) -->
-          <g>
-            <rect x="${(positions[0].x - youHalf).toFixed(1)}" y="${(positions[0].y - youHalf).toFixed(1)}"
-                  width="${youHalf * 2}" height="${youHalf * 2}" rx="${youRx}"
-                  fill="#10B981" filter="url(#r-glow-you)"/>
-            <text x="${positions[0].x.toFixed(1)}" y="${(positions[0].y + youFont * 0.38).toFixed(1)}"
-                  text-anchor="middle" fill="white" font-size="${youFont}" font-weight="bold">You</text>
-            <text x="${positions[0].x.toFixed(1)}" y="${(positions[0].y + youHalf + 17).toFixed(1)}"
-                  text-anchor="middle" fill="#6EE7B7" font-size="${Math.max(8, youFont - 12)}">&#x2713; Completed</text>
-          </g>
-
-          <!-- Maker nodes (clickable) -->
-          ${Array.from({ length: actualMakers }, (_, i) => {
-            const pos = positions[i + 1];
-            const color = makerColors[i % makerColors.length];
-            const addr = report.makerAddresses[i] || '';
-            const shortAddr = addr ? truncateAddress(addr, 6, 4) : '';
-            return `<g class="maker-node cursor-pointer" data-maker-index="${i}"
-                       style="transition: opacity 0.2s;">
-              <rect x="${(pos.x - makerHalf).toFixed(1)}" y="${(pos.y - makerHalf).toFixed(1)}"
-                    width="${makerHalf * 2}" height="${makerHalf * 2}" rx="${makerRx}" fill="${color}"/>
-              <text x="${pos.x.toFixed(1)}" y="${(pos.y + makerFont * 0.38).toFixed(1)}"
-                    text-anchor="middle" fill="white" font-size="${makerFont}" font-weight="bold">M${i + 1}</text>
-              ${actualMakers <= 10 ? `
-              <text x="${pos.x.toFixed(1)}" y="${(pos.y + makerHalf + 14).toFixed(1)}"
-                    text-anchor="middle" fill="#9CA3AF" font-size="${Math.max(7, makerFont - 3)}">${shortAddr}</text>
-              ` : ''}
-            </g>`;
-          }).join('')}
-
-          <text x="${centerX}" y="${centerY}" text-anchor="middle" fill="#6B7280" font-size="11" font-weight="bold">Private Route</text>
-          <text x="${centerX}" y="${centerY + 15}" text-anchor="middle" fill="#4B5563" font-size="9">${actualMakers} makers</text>
-        </svg>
-      </div>
-    `;
-  }
-
   const makerCount = report.makersCount || report.makerAddresses.length;
-  const displaySwapId = report.swapId || 'unknown';
   const displayAmount = report.totalOutputAmount || report.targetAmount;
   const isFailedReport = report.status === 'failed';
   const reportStatusLabel = isFailedReport ? 'Failed' : 'Completed';
@@ -1551,7 +1149,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
 
   content.querySelectorAll('.view-txid-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      window.open(`https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(btn.dataset.txid)}`, '_blank');
+      window.open(explorerTxUrl(btn.dataset.txid), '_blank');
     });
   });
 
@@ -1563,7 +1161,7 @@ export function SwapReportComponent(container, swapReport, options = {}) {
   // Deniability proof — external link buttons
   content.querySelectorAll('.dp-ext').forEach((btn) => {
     btn.addEventListener('click', () => {
-      window.open(`https://mempool.citadelfoss.xyz/tx/${encodeURIComponent(btn.dataset.txid)}`, '_blank');
+      window.open(explorerTxUrl(btn.dataset.txid), '_blank');
     });
   });
 

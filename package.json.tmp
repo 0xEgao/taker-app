@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "coinswap-napi": "file:./coinswap-ffi/coinswap-napi"
-  },
-  "overrides": {
-    "coinswap-napi": "file:./coinswap-ffi/coinswap-napi"
-  }
-}

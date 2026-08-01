@@ -1,18 +1,9 @@
-import { formatRelativeTime } from './SwapStateManager.js';
 import { icons } from '../../js/icons.js';
 import { formatSats, SATS_SYMBOL } from '../../js/price.js';
+import { escapeHtml, formatDuration, formatRelativeTime, normalizeSwapProtocol } from '../../js/coinswapHelpers.js';
 
 let swapHistory = [];
 let currentSort = 'newest';
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
 
 function normalizeTimestamp(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -24,13 +15,6 @@ function normalizeTimestamp(value, fallback = null) {
 
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function formatDuration(seconds) {
-  if (typeof seconds !== 'number' || isNaN(seconds)) return '0m 0s';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}m ${secs}s`;
 }
 
 function formatDate(timestamp) {
@@ -47,17 +31,7 @@ function formatDate(timestamp) {
 
 function getProtocolLabel(report) {
   const protocol = report.protocol || report.report?.protocol;
-  switch (protocol) {
-    case 'v2':
-    case 'Taproot':
-      return 'Taproot';
-    case 'Unified':
-      return 'Unified';
-    case 'v1':
-    case 'Legacy':
-    default:
-      return 'Legacy';
-  }
+  return normalizeSwapProtocol(protocol);
 }
 
 function getProtocolBadgeClasses(protocolLabel) {
@@ -295,34 +269,6 @@ export async function openSwapReport(container, swapId, options = {}) {
     alert('Failed to load swap report: ' + error.message);
     return false;
   }
-}
-
-export function summarizeSwapHistory(history) {
-  const totalSwaps = history.length;
-  const completedSwaps = history.filter(
-    (s) => normalizeStatus(s.status) === 'completed'
-  );
-  const failedSwaps = history.filter(
-    (s) => normalizeStatus(s.status) === 'failed'
-  );
-  const totalAmount = completedSwaps.reduce(
-    (sum, s) => sum + (Number(s.amount) || 0),
-    0
-  );
-  const totalFees = completedSwaps.reduce(
-    (sum, s) => sum + (Number(s.totalFee) || 0),
-    0
-  );
-  const avgFeePaid =
-    completedSwaps.length > 0 ? Math.round(totalFees / completedSwaps.length) : 0;
-  return {
-    totalSwaps,
-    completedSwaps: completedSwaps.length,
-    failedSwaps: failedSwaps.length,
-    totalAmount,
-    totalFees,
-    avgFeePaid,
-  };
 }
 
 export function buildSwapHistoryMarkup(history) {
