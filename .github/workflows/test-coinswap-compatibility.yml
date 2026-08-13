@@ -1,0 +1,125 @@
+name: Build against latest Coinswap
+
+on:
+  repository_dispatch:
+    types: [coinswap-updated]
+  workflow_dispatch:
+    inputs:
+      coinswap_sha:
+        description: Coinswap commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: coinswap-build-${{ github.event.client_payload.coinswap_sha || inputs.coinswap_sha }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      COINSWAP_SHA: ${{ github.event.client_payload.coinswap_sha || inputs.coinswap_sha }}
+    steps:
+      - name: Checkout Taker App
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: taker-app
+          persist-credentials: false
+
+      - name: Checkout Coinswap
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: citadel-tech/coinswap
+          ref: ${{ env.COINSWAP_SHA }}
+          path: coinswap
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: taker-app/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config protobuf-compiler
+
+      - name: Use dispatched Coinswap commit
+        env:
+          COINSWAP_PATH: ${{ github.workspace }}/coinswap
+        run: |
+          mkdir -p "${HOME}/.cargo"
+          {
+            echo '[patch."https://github.com/citadel-tech/coinswap.git"]'
+            printf 'coinswap = { path = "%s" }\n' "${COINSWAP_PATH}"
+          } > "${HOME}/.cargo/config.toml"
+
+      - name: Build Taker App
+        id: build
+        continue-on-error: true
+        working-directory: taker-app
+        run: npm install
+
+      - name: Report build failure
+        if: steps.build.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const sha = process.env.COINSWAP_SHA
+            const marker = `<!-- coinswap-compatibility:${sha} -->`
+            const title = `Coinswap compatibility failed (${sha.slice(0, 12)})`
+            const body = `${marker}\n\nTaker App failed to build against [Coinswap commit \`${sha}\`](https://github.com/citadel-tech/coinswap/commit/${sha}).\n\n[View the failed workflow run](${process.env.RUN_URL}).`
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo,
+              state: 'open',
+              per_page: 100,
+            })
+            const existing = issues.find(
+              (issue) => !issue.pull_request && (issue.body || '').includes(marker),
+            )
+            try {
+              await github.rest.issues.getLabel({
+                ...context.repo,
+                name: 'upstream-breakage',
+              })
+            } catch (error) {
+              if (error.status !== 404) throw error
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: 'upstream-breakage',
+                color: 'b60205',
+                description: 'Breakage caused by an upstream Coinswap change',
+              })
+            }
+            if (existing) {
+              await github.rest.issues.update({
+                ...context.repo,
+                issue_number: existing.number,
+                title,
+                body,
+                labels: ['upstream-breakage'],
+              })
+            } else {
+              await github.rest.issues.create({
+                ...context.repo,
+                title,
+                body,
+                labels: ['upstream-breakage'],
+              })
+            }
+
+      - name: Fail build
+        if: steps.build.outcome == 'failure'
+        run: exit 1
